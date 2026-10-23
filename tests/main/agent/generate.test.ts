@@ -321,3 +321,54 @@ describe('WALKTHROUGH_SYSTEM_PROMPT', () => {
       expect(WALKTHROUGH_SYSTEM_PROMPT).toContain(s)
   })
 })
+
+describe('token usage', () => {
+  const modelUsage = {
+    'claude-opus-5-5': {
+      inputTokens: 1200,
+      outputTokens: 800,
+      cacheReadInputTokens: 50000,
+      cacheCreationInputTokens: 4000,
+      webSearchRequests: 0,
+      costUSD: 0.4,
+      contextWindow: 200000,
+      maxOutputTokens: 32000
+    },
+    'claude-haiku-5-5': {
+      inputTokens: 300,
+      outputTokens: 20,
+      cacheReadInputTokens: 0,
+      cacheCreationInputTokens: 0,
+      webSearchRequests: 0,
+      costUSD: 0.02,
+      contextWindow: 200000,
+      maxOutputTokens: 8000
+    }
+  }
+
+  it('returns token totals and a per-model breakdown from modelUsage', async () => {
+    const q = fakeQuery([result({ structured_output: validOutput, modelUsage })])
+    const r = await run(q.fn)
+    expect(r.tokens).toEqual({ input: 1500, output: 820, cacheRead: 50000, cacheCreation: 4000 })
+    expect(r.tokensByModel?.['claude-haiku-5-5']).toEqual({
+      input: 300,
+      output: 20,
+      cacheRead: 0,
+      cacheCreation: 0
+    })
+  })
+
+  it('returns null tokens when the SDK reports no modelUsage', async () => {
+    const q = fakeQuery([result({ structured_output: validOutput })])
+    const r = await run(q.fn)
+    expect(r.tokens).toBeNull()
+    expect(r.tokensByModel).toBeNull()
+  })
+
+  it('carries tokens on the error when a cap is hit', async () => {
+    const q = fakeQuery([result({ subtype: 'error_max_budget_usd', errors: [], modelUsage })])
+    const err = (await run(q.fn).catch((e: unknown) => e)) as AgentRunError
+    expect(err.reason).toBe('max_budget')
+    expect(err.tokens?.output).toBe(820)
+  })
+})

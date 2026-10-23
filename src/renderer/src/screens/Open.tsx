@@ -13,6 +13,7 @@ interface Props {
   onInputsChanged: () => void
   onGenerate: () => void
   onSettings: () => void
+  onUsage: () => void
 }
 
 type Tab = 'local' | 'github'
@@ -83,9 +84,14 @@ export default function Open(props: Props): React.JSX.Element {
     <div className="screen">
       <div className="row between">
         <h1>Open a change</h1>
-        <button type="button" className="link" onClick={props.onSettings}>
-          Settings
-        </button>
+        <div className="row">
+          <button type="button" className="link" onClick={props.onUsage}>
+            Usage
+          </button>
+          <button type="button" className="link" onClick={props.onSettings}>
+            Settings
+          </button>
+        </div>
       </div>
 
       <label>

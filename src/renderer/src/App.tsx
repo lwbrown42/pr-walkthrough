@@ -4,6 +4,7 @@ import type { Walkthrough as WalkthroughData } from '../../shared/walkthrough'
 import Generating from './screens/Generating'
 import Open from './screens/Open'
 import Setup from './screens/Setup'
+import Usage from './screens/Usage'
 import WalkthroughScreen from './screens/Walkthrough'
 
 type State =
@@ -11,6 +12,7 @@ type State =
   | { screen: 'open'; opened?: OpenResult; error?: string }
   | { screen: 'generating'; opened: OpenResult }
   | { screen: 'walkthrough'; walkthrough: WalkthroughData }
+  | { screen: 'usage' }
 
 function App(): React.JSX.Element | null {
   const [settings, setSettings] = useState<PublicSettings>()
@@ -74,6 +76,7 @@ function App(): React.JSX.Element | null {
           }
           onGenerate={() => setState({ screen: 'generating', opened: state.opened! })}
           onSettings={() => setState({ screen: 'setup' })}
+          onUsage={() => setState({ screen: 'usage' })}
         />
       )
     case 'generating':
@@ -85,6 +88,8 @@ function App(): React.JSX.Element | null {
           onCancelled={() => setState({ screen: 'open', opened: state.opened })}
         />
       )
+    case 'usage':
+      return <Usage onBack={() => setState({ screen: 'open' })} />
     case 'walkthrough':
       return (
         <WalkthroughScreen

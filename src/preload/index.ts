@@ -20,7 +20,8 @@ const api: PreloadApi = {
   ask: (req) => ipcRenderer.invoke(IPC.ask, req),
   onChatText: (cb) => subscribe(IPC.chatText, cb),
   getFixture: () => ipcRenderer.invoke(IPC.getFixture),
-  readFile: (req) => ipcRenderer.invoke(IPC.readFile, req)
+  readFile: (req) => ipcRenderer.invoke(IPC.readFile, req),
+  getRunLog: () => ipcRenderer.invoke(IPC.getRunLog)
 }
 
 if (process.contextIsolated) {

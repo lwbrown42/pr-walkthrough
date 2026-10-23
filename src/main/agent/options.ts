@@ -1,5 +1,6 @@
 import type { Options, SDKResultMessage } from '@anthropic-ai/claude-agent-sdk'
-import type { Settings } from '../../shared/types'
+import type { Settings, TokenUsage } from '../../shared/types'
+import { addTokens, emptyTokens } from '../../shared/usage'
 
 export type AgentRunErrorReason =
   'no_api_key' | 'max_turns' | 'max_budget' | 'invalid_output' | 'cancelled' | 'failed'
@@ -9,6 +10,8 @@ export interface RunUsage {
   costUsd?: number
   turns?: number
   durationMs?: number
+  tokens?: TokenUsage
+  tokensByModel?: Record<string, TokenUsage>
 }
 
 export class AgentRunError extends Error {
@@ -16,6 +19,8 @@ export class AgentRunError extends Error {
   readonly costUsd?: number
   readonly turns?: number
   readonly durationMs?: number
+  readonly tokens?: TokenUsage
+  readonly tokensByModel?: Record<string, TokenUsage>
 
   constructor(
     reason: AgentRunErrorReason,
@@ -29,6 +34,8 @@ export class AgentRunError extends Error {
     if (usage?.costUsd !== undefined) this.costUsd = usage.costUsd
     if (usage?.turns !== undefined) this.turns = usage.turns
     if (usage?.durationMs !== undefined) this.durationMs = usage.durationMs
+    if (usage?.tokens !== undefined) this.tokens = usage.tokens
+    if (usage?.tokensByModel !== undefined) this.tokensByModel = usage.tokensByModel
   }
 }
 
@@ -112,11 +119,28 @@ export function resultError(msg: SDKResultMessage): AgentRunError | null {
   }
 }
 
-/** Cost, turns and duration from a result message (fields may be missing on fakes or crashes). */
+/** Cost, turns, duration and tokens from a result message (fields may be missing on fakes or crashes). */
 export function usageOf(msg: SDKResultMessage): RunUsage {
   const usage: RunUsage = {}
   if (typeof msg.total_cost_usd === 'number') usage.costUsd = msg.total_cost_usd
   if (typeof msg.num_turns === 'number') usage.turns = msg.num_turns
   if (typeof msg.duration_ms === 'number') usage.durationMs = msg.duration_ms
+  // modelUsage covers every model the run called (subagents and auxiliary calls too), unlike `usage`.
+  const byModel = msg.modelUsage
+  if (byModel && Object.keys(byModel).length > 0) {
+    usage.tokensByModel = {}
+    let total = emptyTokens()
+    for (const [model, m] of Object.entries(byModel)) {
+      const t: TokenUsage = {
+        input: m.inputTokens ?? 0,
+        output: m.outputTokens ?? 0,
+        cacheRead: m.cacheReadInputTokens ?? 0,
+        cacheCreation: m.cacheCreationInputTokens ?? 0
+      }
+      usage.tokensByModel[model] = t
+      total = addTokens(total, t)
+    }
+    usage.tokens = total
+  }
   return usage
 }

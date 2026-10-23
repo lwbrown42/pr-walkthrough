@@ -1,7 +1,7 @@
 import { query, type SDKResultMessage } from '@anthropic-ai/claude-agent-sdk'
-import type { Settings } from '../../shared/types'
+import type { Settings, TokenUsage } from '../../shared/types'
 import type { Step } from '../../shared/walkthrough'
-import { AgentRunError, buildAgentOptions, resultError } from './options'
+import { AgentRunError, buildAgentOptions, resultError, usageOf } from './options'
 import { buildChatPrompt } from './prompt'
 
 export interface AskArgs {
@@ -19,6 +19,10 @@ export interface AskResult {
   answer: string
   sessionId: string
   costUsd: number | null
+  turns: number | null
+  durationMs: number | null
+  tokens: TokenUsage | null
+  tokensByModel: Record<string, TokenUsage> | null
 }
 
 /** Asks the walkthrough's agent session a question about one step; resumes that session. */
@@ -95,5 +99,14 @@ export async function askAboutStep(args: AskArgs): Promise<AskResult> {
   // The success result carries the final assistant text; fall back to the collected turns.
   const fromResult = final.subtype === 'success' ? final.result : ''
   const answer = fromResult || [...turns.values()].filter((t) => t !== '').join('\n\n')
-  return { answer, sessionId: final.session_id, costUsd: final.total_cost_usd ?? null }
+  const usage = usageOf(final)
+  return {
+    answer,
+    sessionId: final.session_id,
+    costUsd: usage.costUsd ?? null,
+    turns: usage.turns ?? null,
+    durationMs: usage.durationMs ?? null,
+    tokens: usage.tokens ?? null,
+    tokensByModel: usage.tokensByModel ?? null
+  }
 }

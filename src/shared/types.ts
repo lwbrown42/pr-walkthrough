@@ -36,6 +36,14 @@ export interface Settings {
   lastRepoPath?: string
 }
 
+/** Token counts for one run (summed across models when totalled). */
+export interface TokenUsage {
+  input: number
+  output: number
+  cacheRead: number
+  cacheCreation: number
+}
+
 export interface RunLogEntry {
   at: string
   kind: 'generate' | 'chat'
@@ -45,6 +53,10 @@ export interface RunLogEntry {
   costUsd: number | null
   turns: number | null
   outcome: 'success' | string
+  /** Absent on entries written before token logging, or when the SDK reported none. */
+  tokens?: TokenUsage | null
+  /** Per-model breakdown, keyed by the SDK's model id. */
+  tokensByModel?: Record<string, TokenUsage> | null
 }
 
 export interface ChatMessage {

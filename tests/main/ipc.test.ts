@@ -37,7 +37,8 @@ function setup(
     settings: {
       get: () => settings,
       save: vi.fn(() => settings),
-      appendRunLog: (e) => void log.push(e)
+      appendRunLog: (e) => void log.push(e),
+      readRunLog: () => [...log]
     },
     generateWalkthrough: vi.fn(async (args) => {
       args.onProgress?.({ turns: 1, lastTool: 'Read' })
@@ -46,10 +47,20 @@ function setup(
         sessionId: 'sess1',
         costUsd: 0.5,
         turns: 4,
-        durationMs: 99
+        durationMs: 99,
+        tokens: { input: 100, output: 50, cacheRead: 1000, cacheCreation: 10 },
+        tokensByModel: { m: { input: 100, output: 50, cacheRead: 1000, cacheCreation: 10 } }
       }
     }),
-    askAboutStep: vi.fn(async () => ({ answer: 'yes', sessionId: 'sess2', costUsd: 0.1 })),
+    askAboutStep: vi.fn(async () => ({
+      answer: 'yes',
+      sessionId: 'sess2',
+      costUsd: 0.1,
+      turns: 2,
+      durationMs: 700,
+      tokens: { input: 5, output: 7, cacheRead: 900, cacheCreation: 0 },
+      tokensByModel: null
+    })),
     resolveLocalBranch: vi.fn(async () => target),
     resolveGithubPr: vi.fn(async () => target),
     getChangedFiles: vi.fn(async () => files),
@@ -304,5 +315,59 @@ describe('generate with the real walkthrough pipeline', () => {
     const segs = (res as { steps: Step[] }).steps[0].segments
     expect(segs).toContainEqual({ kind: 'context', path: 'lib/util.ts', startLine: 2, endLine: 4 })
     expect(readFileAt).toHaveBeenCalledWith('/wt', 'head', 'lib/util.ts')
+  })
+})
+
+describe('usage logging', () => {
+  it('logs generation tokens and the per-model breakdown', async () => {
+    const { h, log } = setup()
+    await h.generate(target)
+    expect(log[0].tokens).toEqual({ input: 100, output: 50, cacheRead: 1000, cacheCreation: 10 })
+    expect(log[0].tokensByModel?.m.output).toBe(50)
+  })
+
+  it('logs tokens a failed run reports', async () => {
+    const { h, log } = setup({
+      generateWalkthrough: vi.fn(async () => {
+        throw new AgentRunError('max_budget', 'over', {
+          usage: { tokens: { input: 1, output: 2, cacheRead: 3, cacheCreation: 4 } }
+        })
+      })
+    })
+    await h.generate(target)
+    expect(log[0].tokens).toEqual({ input: 1, output: 2, cacheRead: 3, cacheCreation: 4 })
+  })
+
+  it('logs each chat question as a chat entry under the PR title', async () => {
+    const { h, log } = setup()
+    await h.generate(target)
+    await h.ask({ stepId: 's1', question: 'why?' })
+    expect(log).toHaveLength(2)
+    expect(log[1]).toMatchObject({
+      kind: 'chat',
+      prTitle: 'feat/x',
+      outcome: 'success',
+      costUsd: 0.1,
+      turns: 2,
+      durationMs: 700,
+      tokens: { input: 5, output: 7, cacheRead: 900, cacheCreation: 0 }
+    })
+  })
+
+  it('logs a failed chat question with its reason', async () => {
+    const { h, log } = setup({
+      askAboutStep: vi.fn(async () => {
+        throw new AgentRunError('max_turns', 'too many')
+      })
+    })
+    await h.generate(target)
+    await h.ask({ stepId: 's1', question: 'why?' })
+    expect(log[1]).toMatchObject({ kind: 'chat', outcome: 'max_turns', costUsd: null })
+  })
+
+  it('getRunLog returns the logged runs', async () => {
+    const { h } = setup()
+    await h.generate(target)
+    expect(await h.getRunLog()).toHaveLength(1)
   })
 })

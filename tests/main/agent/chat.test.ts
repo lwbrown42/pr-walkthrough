@@ -123,7 +123,7 @@ describe('askAboutStep', () => {
     ])
     const out = await ask(q.fn, onText)
     expect(onText.mock.calls.map((c) => c[0])).toEqual(['Because ', 'it is.'])
-    expect(out).toEqual({ answer: 'Because it is.', sessionId: 's2', costUsd: 0.1 })
+    expect(out).toMatchObject({ answer: 'Because it is.', sessionId: 's2', costUsd: 0.1 })
   })
 
   it('falls back to assistant text blocks when no deltas arrive, separating turns', async () => {
@@ -190,5 +190,32 @@ describe('askAboutStep', () => {
       throw new Error('boom')
     }) as never
     await rejectsWith(ask(boom), 'failed')
+  })
+})
+
+describe('usage', () => {
+  it('returns turns, duration and token totals from the result', async () => {
+    const q = fakeQuery([
+      assistantText('Because.'),
+      result({
+        num_turns: 2,
+        duration_ms: 1500,
+        modelUsage: {
+          'claude-opus-5-5': {
+            inputTokens: 10,
+            outputTokens: 5,
+            cacheReadInputTokens: 900,
+            cacheCreationInputTokens: 0,
+            webSearchRequests: 0,
+            costUSD: 0.01,
+            contextWindow: 200000,
+            maxOutputTokens: 32000
+          }
+        }
+      })
+    ])
+    const r = await ask(q.fn)
+    expect(r).toMatchObject({ turns: 2, durationMs: 1500 })
+    expect(r.tokens).toEqual({ input: 10, output: 5, cacheRead: 900, cacheCreation: 0 })
   })
 })

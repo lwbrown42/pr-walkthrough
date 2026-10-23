@@ -43,7 +43,8 @@ beforeEach(() => {
     ask: vi.fn(),
     onChatText: vi.fn().mockReturnValue(() => {}),
     readFile: vi.fn(),
-    getFixture: vi.fn().mockResolvedValue(null)
+    getFixture: vi.fn().mockResolvedValue(null),
+    getRunLog: vi.fn().mockResolvedValue([])
   }
   window.api = api as unknown as PreloadApi
 })
@@ -204,6 +205,18 @@ describe('screens', () => {
     render(<App />)
     expect(await screen.findByText('settings boom')).toBeTruthy()
     await user.click(screen.getByRole('button', { name: 'Retry' }))
+    expect(await screen.findByText('Open a change')).toBeTruthy()
+  })
+})
+
+describe('usage navigation', () => {
+  it('opens Usage from the Open screen and comes back', async () => {
+    api.getRunLog.mockResolvedValue([])
+    const user = userEvent.setup()
+    render(<App />)
+    await user.click(await screen.findByRole('button', { name: 'Usage' }))
+    expect(await screen.findByText(/No runs logged yet/)).toBeTruthy()
+    await user.click(screen.getByRole('button', { name: 'Back' }))
     expect(await screen.findByText('Open a change')).toBeTruthy()
   })
 })

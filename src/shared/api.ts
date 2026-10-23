@@ -1,4 +1,4 @@
-import type { ChangedFile, ChatMessage, ReviewTarget, Settings } from './types'
+import type { ChangedFile, ChatMessage, ReviewTarget, RunLogEntry, Settings } from './types'
 import type { Walkthrough } from './walkthrough'
 
 export type OpenRequest =
@@ -38,6 +38,8 @@ export interface PreloadApi {
   /** Dev-only: the walkthrough loaded via --fixture <file.json>, else null. */
   getFixture(): Promise<Walkthrough | null>
   readFile(req: { sha: string; path: string }): Promise<string | null>
+  /** Every logged generation and chat question, oldest first. */
+  getRunLog(): Promise<RunLogEntry[]>
 }
 
 export const CHANGED_LINES_LIMIT = 1300
@@ -52,6 +54,7 @@ export const IPC = {
   ask: 'api:ask',
   readFile: 'api:readFile',
   getFixture: 'api:getFixture',
+  getRunLog: 'api:getRunLog',
   generateProgress: 'api:generateProgress',
   chatText: 'api:chatText'
 } as const

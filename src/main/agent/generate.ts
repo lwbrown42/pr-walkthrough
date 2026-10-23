@@ -1,5 +1,5 @@
 import { query, type SDKResultMessage } from '@anthropic-ai/claude-agent-sdk'
-import type { ChangedFile, ReviewTarget, Settings } from '../../shared/types'
+import type { ChangedFile, ReviewTarget, Settings, TokenUsage } from '../../shared/types'
 import { AgentWalkthrough, agentWalkthroughJsonSchema } from '../../shared/walkthrough'
 import { normalizeWalkthrough, type LineCounts } from '../walkthrough/normalize'
 import { AgentRunError, buildAgentOptions, resultError, usageOf } from './options'
@@ -30,6 +30,8 @@ export interface GenerateResult {
   costUsd: number | null
   turns: number | null
   durationMs: number
+  tokens: TokenUsage | null
+  tokensByModel: Record<string, TokenUsage> | null
 }
 
 export async function generateWalkthrough(args: GenerateArgs): Promise<GenerateResult> {
@@ -89,12 +91,15 @@ export async function generateWalkthrough(args: GenerateArgs): Promise<GenerateR
   }
 
   const lineCounts = await withContextLineCounts(parsed.data, files, args.lineCounts, readLineCount)
+  const usage = usageOf(final)
   return {
     walkthrough: normalizeWalkthrough(parsed.data, files, lineCounts),
     sessionId: final.session_id,
     costUsd: final.total_cost_usd ?? null,
     turns: final.num_turns ?? null,
-    durationMs: Date.now() - started
+    durationMs: Date.now() - started,
+    tokens: usage.tokens ?? null,
+    tokensByModel: usage.tokensByModel ?? null
   }
 }
 

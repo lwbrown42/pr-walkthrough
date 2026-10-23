@@ -20,7 +20,7 @@ import type { SettingsStore } from './settings'
 import type { LineCounts } from './walkthrough/normalize'
 
 export interface HandlerDeps {
-  settings: Pick<SettingsStore, 'get' | 'save' | 'appendRunLog'>
+  settings: Pick<SettingsStore, 'get' | 'save' | 'appendRunLog' | 'readRunLog'>
   generateWalkthrough: typeof generateWalkthrough
   askAboutStep: typeof askAboutStep
   resolveLocalBranch: typeof resolveLocalBranch
@@ -48,6 +48,12 @@ function toApiError(err: unknown): ApiError {
   const reason = err instanceof AgentRunError ? err.reason : undefined
   return { error: reason ? { message, reason } : { message } }
 }
+
+/** The per-run fields of a log entry (the rest comes from the PR being reviewed). */
+type RunOutcome = Pick<
+  RunLogEntry,
+  'outcome' | 'costUsd' | 'turns' | 'durationMs' | 'tokens' | 'tokensByModel'
+>
 
 /** At most this many `git show` processes run at once. */
 const READ_CONCURRENCY = 8
@@ -151,9 +157,7 @@ export function createHandlers(deps: HandlerDeps): Handlers {
 
     async generate(target): Promise<Walkthrough | ApiError> {
       const started = deps.now()
-      const entry = (
-        partial: Pick<RunLogEntry, 'outcome' | 'costUsd' | 'turns' | 'durationMs'>
-      ): void =>
+      const entry = (partial: RunOutcome): void =>
         deps.settings.appendRunLog({
           at: new Date(started).toISOString(),
           kind: 'generate',
@@ -211,7 +215,9 @@ export function createHandlers(deps: HandlerDeps): Handlers {
           outcome: 'success',
           costUsd: result.costUsd,
           turns: result.turns,
-          durationMs: result.durationMs
+          durationMs: result.durationMs,
+          tokens: result.tokens,
+          tokensByModel: result.tokensByModel
         })
         return walkthrough
       } catch (err) {
@@ -220,7 +226,9 @@ export function createHandlers(deps: HandlerDeps): Handlers {
           outcome: abortController.signal.aborted ? 'cancelled' : (agentErr?.reason ?? 'failed'),
           costUsd: agentErr?.costUsd ?? null,
           turns: agentErr?.turns ?? null,
-          durationMs: agentErr?.durationMs ?? deps.now() - started
+          durationMs: agentErr?.durationMs ?? deps.now() - started,
+          tokens: agentErr?.tokens ?? null,
+          tokensByModel: agentErr?.tokensByModel ?? null
         })
         if (abortController.signal.aborted) {
           return { error: { message: 'Generation was cancelled.', reason: 'cancelled' } }
@@ -236,6 +244,18 @@ export function createHandlers(deps: HandlerDeps): Handlers {
     },
 
     async ask({ stepId, question }): Promise<ChatMessage | ApiError> {
+      const started = deps.now()
+      const asked = walkthrough
+      const entry = (partial: RunOutcome): void => {
+        if (!asked) return
+        deps.settings.appendRunLog({
+          at: new Date(started).toISOString(),
+          kind: 'chat',
+          prTitle: asked.target.title,
+          changedLines: asked.changedLines,
+          ...partial
+        })
+      }
       try {
         if (!walkthrough) throw new Error('No walkthrough is open.')
         const stepIndex = walkthrough.steps.findIndex((s) => s.id === stepId)
@@ -249,11 +269,33 @@ export function createHandlers(deps: HandlerDeps): Handlers {
           settings: deps.settings.get(),
           onText: (chunk) => deps.send(IPC.chatText, chunk)
         })
+        entry({
+          outcome: 'success',
+          costUsd: result.costUsd,
+          turns: result.turns,
+          durationMs: result.durationMs ?? deps.now() - started,
+          tokens: result.tokens,
+          tokensByModel: result.tokensByModel
+        })
         walkthrough = { ...walkthrough, sessionId: result.sessionId }
         return { id: randomUUID(), stepId, role: 'assistant', text: result.answer }
       } catch (err) {
+        if (err instanceof AgentRunError) {
+          entry({
+            outcome: err.reason,
+            costUsd: err.costUsd ?? null,
+            turns: err.turns ?? null,
+            durationMs: err.durationMs ?? deps.now() - started,
+            tokens: err.tokens ?? null,
+            tokensByModel: err.tokensByModel ?? null
+          })
+        }
         return toApiError(err)
       }
+    },
+
+    async getRunLog() {
+      return deps.settings.readRunLog()
     },
 
     async getFixture() {
@@ -308,4 +350,5 @@ export function registerIpc(opts: {
   ipcMain.handle(IPC.ask, (_e, req) => handlers.ask(req))
   ipcMain.handle(IPC.getFixture, () => handlers.getFixture())
   ipcMain.handle(IPC.readFile, (_e, req) => handlers.readFile(req))
+  ipcMain.handle(IPC.getRunLog, () => handlers.getRunLog())
 }
