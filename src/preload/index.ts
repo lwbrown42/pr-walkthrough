@@ -1,12 +1,28 @@
-import { contextBridge } from 'electron'
+import { contextBridge, ipcRenderer, type IpcRendererEvent } from 'electron'
 import { electronAPI } from '@electron-toolkit/preload'
+import { IPC, type PreloadApi } from '../shared/api'
 
-// Custom APIs for renderer
-const api = {}
+function subscribe<T>(channel: string, cb: (payload: T) => void): () => void {
+  const listener = (_e: IpcRendererEvent, payload: T): void => cb(payload)
+  ipcRenderer.on(channel, listener)
+  return () => {
+    ipcRenderer.removeListener(channel, listener)
+  }
+}
 
-// Use `contextBridge` APIs to expose Electron APIs to
-// renderer only if context isolation is enabled, otherwise
-// just add to the DOM global.
+const api: PreloadApi = {
+  getSettings: () => ipcRenderer.invoke(IPC.getSettings),
+  saveSettings: (patch) => ipcRenderer.invoke(IPC.saveSettings, patch),
+  pickRepo: () => ipcRenderer.invoke(IPC.pickRepo),
+  openTarget: (req) => ipcRenderer.invoke(IPC.openTarget, req),
+  generate: (target) => ipcRenderer.invoke(IPC.generate, target),
+  onGenerateProgress: (cb) => subscribe(IPC.generateProgress, cb),
+  ask: (req) => ipcRenderer.invoke(IPC.ask, req),
+  onChatText: (cb) => subscribe(IPC.chatText, cb),
+  readFile: (req) => ipcRenderer.invoke(IPC.readFile, req)
+}
+
+// The template's `electron` toolkit exposure stays: the template renderer still uses it.
 if (process.contextIsolated) {
   try {
     contextBridge.exposeInMainWorld('electron', electronAPI)
