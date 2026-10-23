@@ -167,7 +167,12 @@ describe('generate', () => {
       })
     })
     await h.generate(target)
-    expect(log[0]).toMatchObject({ outcome: 'max_budget', costUsd: 3.1, turns: 22, durationMs: 5000 })
+    expect(log[0]).toMatchObject({
+      outcome: 'max_budget',
+      costUsd: 3.1,
+      turns: 22,
+      durationMs: 5000
+    })
   })
 
   it('skips a file whose contents cannot be read instead of failing', async () => {
@@ -202,7 +207,9 @@ describe('generate', () => {
     const p = h.generate(target)
     await new Promise((r) => setTimeout(r, 0))
     await h.cancelGenerate()
-    expect(await p).toEqual({ error: { message: 'Generation was cancelled.', reason: 'cancelled' } })
+    expect(await p).toEqual({
+      error: { message: 'Generation was cancelled.', reason: 'cancelled' }
+    })
     expect(log[0].outcome).toBe('cancelled')
   })
 

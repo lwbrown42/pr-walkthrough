@@ -17,12 +17,7 @@ export function withHomebrewPath(path: string | undefined): string {
   return [...missing, ...parts].join(':')
 }
 
-function run(
-  cmd: string,
-  cwd: string,
-  args: string[],
-  env?: NodeJS.ProcessEnv
-): Promise<string> {
+function run(cmd: string, cwd: string, args: string[], env?: NodeJS.ProcessEnv): Promise<string> {
   return new Promise((resolve, reject) => {
     execFile(
       cmd,

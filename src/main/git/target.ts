@@ -11,7 +11,8 @@ interface GitDeps {
 
 export function parsePrRef(pr: string): number {
   const s = pr.trim()
-  const m = /^(\d+)$/.exec(s) ?? /^https:\/\/github\.com\/[^/]+\/[^/]+\/pull\/(\d+)(?:[/?#].*)?$/.exec(s)
+  const m =
+    /^(\d+)$/.exec(s) ?? /^https:\/\/github\.com\/[^/]+\/[^/]+\/pull\/(\d+)(?:[/?#].*)?$/.exec(s)
   if (!m) throw new Error('Not a PR number or GitHub PR URL')
   return Number(m[1])
 }
@@ -64,7 +65,10 @@ async function ensureWorktree(
 
   // Forget worktrees whose folders were deleted, so `worktree add` can recreate them.
   await git(repoPath, ['worktree', 'prune'])
-  const exists = await access(worktreePath).then(() => true, () => false)
+  const exists = await access(worktreePath).then(
+    () => true,
+    () => false
+  )
   if (exists) {
     const list = await git(repoPath, ['worktree', 'list', '--porcelain'])
     const registered = list
@@ -106,8 +110,9 @@ export async function resolveGithubPr(
   if (urlRepo) {
     let nameWithOwner: string
     try {
-      nameWithOwner = JSON.parse(await gh(repoPath, ['repo', 'view', '--json', 'nameWithOwner']))
-        .nameWithOwner
+      nameWithOwner = JSON.parse(
+        await gh(repoPath, ['repo', 'view', '--json', 'nameWithOwner'])
+      ).nameWithOwner
     } catch (e) {
       throw ghError(e)
     }
@@ -119,7 +124,11 @@ export async function resolveGithubPr(
   let info: { number: number; title: string; baseRefName: string; headRefOid: string }
   try {
     const out = await gh(repoPath, [
-      'pr', 'view', String(n), '--json', 'number,title,baseRefName,headRefOid'
+      'pr',
+      'view',
+      String(n),
+      '--json',
+      'number,title,baseRefName,headRefOid'
     ])
     info = JSON.parse(out)
   } catch (e) {
@@ -129,7 +138,9 @@ export async function resolveGithubPr(
   await git(repoPath, ['fetch', 'origin', `pull/${n}/head`])
   await git(repoPath, ['fetch', 'origin', info.baseRefName])
   const headSha = info.headRefOid
-  const baseSha = (await git(repoPath, ['merge-base', `origin/${info.baseRefName}`, headSha])).trim()
+  const baseSha = (
+    await git(repoPath, ['merge-base', `origin/${info.baseRefName}`, headSha])
+  ).trim()
   const worktreePath = await ensureWorktree(git, repoPath, worktreesDir, headSha)
   return {
     kind: 'github',

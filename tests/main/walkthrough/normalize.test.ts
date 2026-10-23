@@ -1,7 +1,12 @@
 import { describe, expect, it } from 'vitest'
-import { AgentWalkthrough, agentWalkthroughJsonSchema, type Step } from '../../../src/shared/walkthrough'
+import {
+  AgentWalkthrough,
+  agentWalkthroughJsonSchema,
+  type CodeSegment,
+  type Step
+} from '../../../src/shared/walkthrough'
 import { normalizeWalkthrough } from '../../../src/main/walkthrough/normalize'
-import type { ChangedFile } from '../../../src/shared/types'
+import type { ChangedFile, Hunk } from '../../../src/shared/types'
 
 const file = (over: Partial<ChangedFile> & { path: string }): ChangedFile => ({
   status: 'modified',
@@ -11,7 +16,14 @@ const file = (over: Partial<ChangedFile> & { path: string }): ChangedFile => ({
   hunks: [],
   ...over
 })
-const hunk = (path: string, i: number, newStart: number, newLines: number, oldStart = 1, oldLines = 1) => ({
+const hunk = (
+  path: string,
+  i: number,
+  newStart: number,
+  newLines: number,
+  oldStart = 1,
+  oldLines = 1
+): Hunk => ({
   id: `${path}#${i}`,
   newStart,
   newLines,
@@ -26,22 +38,30 @@ const step = (id: string, over: Partial<Step> = {}): Step => ({
   segments: [],
   ...over
 })
-const seg = (path: string, startLine: number, endLine: number) => ({ kind: 'change' as const, path, startLine, endLine })
-const run = (steps: Step[], files: ChangedFile[], head: Record<string, number> = {}, base: Record<string, number> = {}) =>
-  normalizeWalkthrough({ summary: 's', steps }, files, { head, base })
+const seg = (path: string, startLine: number, endLine: number): CodeSegment => ({
+  kind: 'change' as const,
+  path,
+  startLine,
+  endLine
+})
+const run = (
+  steps: Step[],
+  files: ChangedFile[],
+  head: Record<string, number> = {},
+  base: Record<string, number> = {}
+): AgentWalkthrough => normalizeWalkthrough({ summary: 's', steps }, files, { head, base })
 
 describe('normalizeWalkthrough', () => {
   it('de-duplicates step ids with -2, -3 suffixes', () => {
-    const out = run(
-      [step('a'), step('a'), step('b'), step('a'), step('a-2')],
-      []
-    )
+    const out = run([step('a'), step('a'), step('b'), step('a'), step('a-2')], [])
     expect(out.steps.map((s) => s.id)).toEqual(['a', 'a-2', 'b', 'a-3', 'a-2-2'])
   })
 
   it('drops unknown paths, clamps and swaps', () => {
     const out = run(
-      [step('s1', { segments: [seg('ghost.ts', 1, 2), seg('a.ts', 90, 200), seg('a.ts', 20, 10)] })],
+      [
+        step('s1', { segments: [seg('ghost.ts', 1, 2), seg('a.ts', 90, 200), seg('a.ts', 20, 10)] })
+      ],
       [file({ path: 'a.ts' })],
       { 'a.ts': 100 }
     )
@@ -64,7 +84,10 @@ describe('normalizeWalkthrough', () => {
 
   it('does not add Everything else when covered across steps', () => {
     const out = run(
-      [step('s1', { segments: [seg('a.ts', 5, 6)] }), step('s2', { segments: [seg('a.ts', 7, 7), seg('a.ts', 41, 41)] })],
+      [
+        step('s1', { segments: [seg('a.ts', 5, 6)] }),
+        step('s2', { segments: [seg('a.ts', 7, 7), seg('a.ts', 41, 41)] })
+      ],
       [aFile],
       { 'a.ts': 100 }
     )
@@ -74,7 +97,9 @@ describe('normalizeWalkthrough', () => {
   it('uses base range for deleted files', () => {
     const f = file({ path: 'old.ts', status: 'deleted', hunks: [hunk('old.ts', 0, 0, 0, 3, 4)] })
     const out = run([], [f], {}, { 'old.ts': 10 })
-    expect(out.steps.at(-1)!.segments).toEqual([{ kind: 'change', path: 'old.ts', startLine: 3, endLine: 6 }])
+    expect(out.steps.at(-1)!.segments).toEqual([
+      { kind: 'change', path: 'old.ts', startLine: 3, endLine: 6 }
+    ])
   })
 
   it('moves and merges an agent Everything else step', () => {
@@ -105,7 +130,10 @@ describe('normalizeWalkthrough', () => {
   })
 
   it('keeps empty-segment steps with explanation, drops those without', () => {
-    const out = run([step('s1', { segments: [seg('ghost.ts', 1, 1)] }), step('s2', { explanation: '' })], [])
+    const out = run(
+      [step('s1', { segments: [seg('ghost.ts', 1, 1)] }), step('s2', { explanation: '' })],
+      []
+    )
     expect(out.steps.map((s) => s.id)).toEqual(['s1'])
   })
 
@@ -130,11 +158,14 @@ describe('normalizeWalkthrough', () => {
 describe('schemas', () => {
   it('rejects a step missing explanation', () => {
     expect(() =>
-      AgentWalkthrough.parse({ summary: 's', steps: [{ id: 'a', title: 't', whyNext: '', segments: [] }] })
+      AgentWalkthrough.parse({
+        summary: 's',
+        steps: [{ id: 'a', title: 't', whyNext: '', segments: [] }]
+      })
     ).toThrow()
   })
   it('exports a draft-07 JSON schema', () => {
-    const s = agentWalkthroughJsonSchema as Record<string, any>
+    const s = agentWalkthroughJsonSchema as { type: string; properties: Record<string, unknown> }
     expect(s.type).toBe('object')
     expect(s.properties.steps).toBeDefined()
   })

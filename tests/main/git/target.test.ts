@@ -2,7 +2,7 @@ import { describe, it, expect, afterEach } from 'vitest'
 import { mkdtemp, readFile, realpath, rm } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
-import { makeTempRepo } from '../../helpers/tempRepo'
+import { makeTempRepo, type TempRepo } from '../../helpers/tempRepo'
 import { runGit } from '../../../src/main/git/run'
 import {
   parsePrRef,
@@ -16,7 +16,12 @@ afterEach(async () => {
   while (cleanup.length) await rm(cleanup.pop()!, { recursive: true, force: true })
 })
 
-async function setup() {
+async function setup(): Promise<{
+  repo: TempRepo
+  wt: string
+  base: string
+  head: string
+}> {
   const repo = await makeTempRepo()
   const wt = await mkdtemp(join(tmpdir(), 'crh-wt-'))
   cleanup.push(repo.dir, wt)
@@ -85,11 +90,14 @@ describe('resolveGithubPr', () => {
   it('maps gh failures to a GitHub CLI error', async () => {
     const { repo, wt } = await setup()
     await expect(
-      resolveGithubPr({ repoPath: repo.dir, pr: '1', worktreesDir: wt }, {
-        runGh: async () => {
-          throw new Error('gh: command not found')
+      resolveGithubPr(
+        { repoPath: repo.dir, pr: '1', worktreesDir: wt },
+        {
+          runGh: async () => {
+            throw new Error('gh: command not found')
+          }
         }
-      })
+      )
     ).rejects.toThrow(/GitHub CLI/)
   })
 })
@@ -111,11 +119,14 @@ describe('runGh / PATH', () => {
   it('resolveGithubPr passes the not-found message through unwrapped', async () => {
     const { GH_NOT_FOUND } = await import('../../../src/main/git/run')
     await expect(
-      resolveGithubPr({ repoPath: '/x', pr: '1', worktreesDir: '/y' }, {
-        runGh: async () => {
-          throw new Error(GH_NOT_FOUND)
+      resolveGithubPr(
+        { repoPath: '/x', pr: '1', worktreesDir: '/y' },
+        {
+          runGh: async () => {
+            throw new Error(GH_NOT_FOUND)
+          }
         }
-      })
+      )
     ).rejects.toThrow(new Error(GH_NOT_FOUND))
   })
 

@@ -218,7 +218,13 @@ describe('generateWalkthrough', () => {
 
   it('carries cost, turns and duration on a failed result', async () => {
     const q = fakeQuery([
-      result({ subtype: 'error_max_turns', is_error: true, total_cost_usd: 1.5, num_turns: 60, duration_ms: 4200 })
+      result({
+        subtype: 'error_max_turns',
+        is_error: true,
+        total_cost_usd: 1.5,
+        num_turns: 60,
+        duration_ms: 4200
+      })
     ])
     const err = (await run(q.fn).catch((e: unknown) => e)) as AgentRunError
     expect(err.reason).toBe('max_turns')
@@ -227,13 +233,24 @@ describe('generateWalkthrough', () => {
 
   it('passes the abortController and maps an aborted run to cancelled', async () => {
     const ac = new AbortController()
-    const queryFn = ((params: { options?: Options }) =>
-      (async function* () {
-        expect(params.options?.abortController).toBe(ac)
-        ac.abort()
-        throw new Error('Operation aborted')
-      })()) as never
-    const p = generateWalkthrough({ target, files, diffText, lineCounts, settings, queryFn, abortController: ac })
+    const queryFn = ((params: { options?: Options }) => ({
+      [Symbol.asyncIterator]: () => ({
+        next: async () => {
+          expect(params.options?.abortController).toBe(ac)
+          ac.abort()
+          throw new Error('Operation aborted')
+        }
+      })
+    })) as never
+    const p = generateWalkthrough({
+      target,
+      files,
+      diffText,
+      lineCounts,
+      settings,
+      queryFn,
+      abortController: ac
+    })
     await rejectsWith(p, 'cancelled')
   })
 

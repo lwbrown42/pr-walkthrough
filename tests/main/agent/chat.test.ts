@@ -1,6 +1,6 @@
 import { describe, expect, it, vi } from 'vitest'
 import type { Options, SDKMessage } from '@anthropic-ai/claude-agent-sdk'
-import { askAboutStep } from '../../../src/main/agent/chat'
+import { askAboutStep, type AskResult } from '../../../src/main/agent/chat'
 import { AgentRunError } from '../../../src/main/agent/options'
 import { buildChatPrompt } from '../../../src/main/agent/prompt'
 import type { Settings } from '../../../src/shared/types'
@@ -64,7 +64,11 @@ function fakeQuery(messages: SDKMessage[]): {
   return { fn: fn as never, calls }
 }
 
-const ask = (queryFn: never, onText?: (c: string) => void, over: Partial<Settings> = {}) =>
+const ask = (
+  queryFn: never,
+  onText?: (c: string) => void,
+  over: Partial<Settings> = {}
+): Promise<AskResult> =>
   askAboutStep({
     sessionId: 's1',
     worktreePath: '/tmp/wt',

@@ -15,7 +15,8 @@ function sanitizeSegment(
   counts: LineCounts
 ): CodeSegment | null {
   const file = fileByPath.get(seg.path)
-  const useBase = file?.status === 'deleted' || (file?.oldPath === seg.path && file.path !== seg.path)
+  const useBase =
+    file?.status === 'deleted' || (file?.oldPath === seg.path && file.path !== seg.path)
   const total = (useBase ? counts.base : counts.head)[seg.path]
   if (total === undefined || total < 1) return null
   const clamp = (n: number): number => Math.min(Math.max(n, 1), total)
@@ -70,7 +71,9 @@ export function normalizeWalkthrough(
   const missing: CodeSegment[] = []
   for (const file of files) {
     const deleted = file.status === 'deleted'
-    const named = allSegments.some((s) => s.path === file.path || (file.oldPath !== undefined && s.path === file.oldPath))
+    const named = allSegments.some(
+      (s) => s.path === file.path || (file.oldPath !== undefined && s.path === file.oldPath)
+    )
     if (file.binary || file.hunks.length === 0) {
       if (!named) {
         const total = (deleted ? lineCounts.base : lineCounts.head)[file.path] ?? 1
@@ -82,9 +85,11 @@ export function normalizeWalkthrough(
       const start = deleted ? h.oldStart : h.newStart
       const end = start + Math.max(deleted ? h.oldLines : h.newLines, 1) - 1
       const covered = allSegments.some(
-        (s) => s.kind === 'change' && s.path === file.path && s.startLine <= end && s.endLine >= start
+        (s) =>
+          s.kind === 'change' && s.path === file.path && s.startLine <= end && s.endLine >= start
       )
-      if (!covered) missing.push({ kind: 'change', path: file.path, startLine: start, endLine: end })
+      if (!covered)
+        missing.push({ kind: 'change', path: file.path, startLine: start, endLine: end })
     }
   }
 
@@ -104,6 +109,7 @@ export function normalizeWalkthrough(
     segments: [...existing.flatMap((s) => s.segments), ...missing]
   }
   // A leftover step that is empty carries nothing worth showing.
-  if (merged.segments.length === 0 && merged.explanation.trim() === '') return { ...raw, steps: others }
+  if (merged.segments.length === 0 && merged.explanation.trim() === '')
+    return { ...raw, steps: others }
   return { ...raw, steps: [...others, merged] }
 }
