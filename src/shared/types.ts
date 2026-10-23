@@ -46,3 +46,10 @@ export interface RunLogEntry {
   turns: number | null
   outcome: 'success' | string
 }
+
+export interface ChatMessage {
+  id: string
+  stepId: string
+  role: 'user' | 'assistant'
+  text: string
+}

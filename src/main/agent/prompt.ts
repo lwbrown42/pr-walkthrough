@@ -1,4 +1,5 @@
 import type { ChangedFile, ReviewTarget } from '../../shared/types'
+import type { Step } from '../../shared/walkthrough'
 
 export const WALKTHROUGH_SYSTEM_PROMPT = `You are the author of a pull request, walking a reviewer through it as you would on a screen-share. The reviewer sees one step at a time: the code for that step in a code pane, and your explanation beside it. Your output is the ordered list of steps.
 
@@ -55,4 +56,12 @@ ${files.map(describeFile).join('\n')}
 
 Full unified diff (base ${target.baseSha.slice(0, 12)} -> head ${target.headSha.slice(0, 12)}):
 ${diffText}`
+}
+
+export function buildChatPrompt(step: Step, stepIndex: number, question: string): string {
+  return `The reviewer is now on step ${stepIndex + 1}, "${step.title}", and asks:
+
+${question}
+
+Answer about this step. Where it helps, refer back to earlier steps or to earlier questions and answers in this conversation. Be concise. Refer to code by path:line rather than pasting code blocks. You may read the repository to check details; do not try to change anything.`
 }
