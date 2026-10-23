@@ -1,0 +1,243 @@
+{
+  "summary": "Fixture: the commit adding the walkthrough screen (this repo's own history).",
+  "steps": [
+    {
+      "id": "s1",
+      "title": "Walkthrough screen added (added file, diff vs plain)",
+      "whyNext": "",
+      "explanation": "A brand new file: in Diff mode everything is green; Plain mode shows just the code.",
+      "segments": [
+        {
+          "kind": "change",
+          "path": "src/renderer/src/screens/Walkthrough.tsx",
+          "startLine": 1,
+          "endLine": 30,
+          "note": "The new screen."
+        }
+      ]
+    },
+    {
+      "id": "s2",
+      "title": "App wiring (modified file plus unchanged context)",
+      "whyNext": "App now routes to the new screen.",
+      "explanation": "Changed lines in App.tsx, followed by an unchanged part of the same file labeled as context.",
+      "segments": [
+        {
+          "kind": "change",
+          "path": "src/renderer/src/App.tsx",
+          "startLine": 1,
+          "endLine": 30
+        },
+        {
+          "kind": "context",
+          "path": "src/renderer/src/App.tsx",
+          "startLine": 60,
+          "endLine": 80,
+          "note": "Unchanged code nearby."
+        }
+      ]
+    },
+    {
+      "id": "s3",
+      "title": "Deleted placeholder",
+      "whyNext": "The placeholder it replaces is gone.",
+      "explanation": "A deleted file: its old content is still shown.",
+      "segments": [
+        {
+          "kind": "change",
+          "path": "src/renderer/src/screens/WalkthroughPlaceholder.tsx",
+          "startLine": 1,
+          "endLine": 20
+        }
+      ]
+    }
+  ],
+  "target": {
+    "kind": "local",
+    "repoPath": "/Users/lee/projects/code-review-helper",
+    "worktreePath": "/Users/lee/projects/code-review-helper",
+    "baseSha": "5d5a5d0aee5f5f445db7cc8a0059eafea459d608",
+    "headSha": "f70e47bc81476e59972a1259152cbfe3fef2c871",
+    "title": "Fixture: walkthrough screen"
+  },
+  "files": [
+    {
+      "path": "src/preload/index.d.ts",
+      "status": "modified",
+      "binary": false,
+      "additions": 0,
+      "deletions": 0,
+      "hunks": []
+    },
+    {
+      "path": "src/preload/index.ts",
+      "status": "modified",
+      "binary": false,
+      "additions": 0,
+      "deletions": 0,
+      "hunks": []
+    },
+    {
+      "path": "src/renderer/src/App.tsx",
+      "status": "modified",
+      "binary": false,
+      "additions": 0,
+      "deletions": 0,
+      "hunks": []
+    },
+    {
+      "path": "src/renderer/src/assets/base.css",
+      "status": "deleted",
+      "binary": false,
+      "additions": 0,
+      "deletions": 0,
+      "hunks": []
+    },
+    {
+      "path": "src/renderer/src/assets/electron.svg",
+      "status": "deleted",
+      "binary": false,
+      "additions": 0,
+      "deletions": 0,
+      "hunks": []
+    },
+    {
+      "path": "src/renderer/src/assets/main.css",
+      "status": "deleted",
+      "binary": false,
+      "additions": 0,
+      "deletions": 0,
+      "hunks": []
+    },
+    {
+      "path": "src/renderer/src/assets/wavy-lines.svg",
+      "status": "deleted",
+      "binary": false,
+      "additions": 0,
+      "deletions": 0,
+      "hunks": []
+    },
+    {
+      "path": "src/renderer/src/components/ChatPanel.tsx",
+      "status": "added",
+      "binary": false,
+      "additions": 0,
+      "deletions": 0,
+      "hunks": []
+    },
+    {
+      "path": "src/renderer/src/components/CodePane.tsx",
+      "status": "added",
+      "binary": false,
+      "additions": 0,
+      "deletions": 0,
+      "hunks": []
+    },
+    {
+      "path": "src/renderer/src/components/ExplanationPanel.tsx",
+      "status": "added",
+      "binary": false,
+      "additions": 0,
+      "deletions": 0,
+      "hunks": []
+    },
+    {
+      "path": "src/renderer/src/components/StepsList.tsx",
+      "status": "added",
+      "binary": false,
+      "additions": 0,
+      "deletions": 0,
+      "hunks": []
+    },
+    {
+      "path": "src/renderer/src/components/Versions.tsx",
+      "status": "deleted",
+      "binary": false,
+      "additions": 0,
+      "deletions": 0,
+      "hunks": []
+    },
+    {
+      "path": "src/renderer/src/errors.ts",
+      "status": "added",
+      "binary": false,
+      "additions": 0,
+      "deletions": 0,
+      "hunks": []
+    },
+    {
+      "path": "src/renderer/src/main.tsx",
+      "status": "modified",
+      "binary": false,
+      "additions": 0,
+      "deletions": 0,
+      "hunks": []
+    },
+    {
+      "path": "src/renderer/src/screens/Generating.tsx",
+      "status": "added",
+      "binary": false,
+      "additions": 0,
+      "deletions": 0,
+      "hunks": []
+    },
+    {
+      "path": "src/renderer/src/screens/Open.tsx",
+      "status": "added",
+      "binary": false,
+      "additions": 0,
+      "deletions": 0,
+      "hunks": []
+    },
+    {
+      "path": "src/renderer/src/screens/Setup.tsx",
+      "status": "added",
+      "binary": false,
+      "additions": 0,
+      "deletions": 0,
+      "hunks": []
+    },
+    {
+      "path": "src/renderer/src/screens/Walkthrough.tsx",
+      "status": "added",
+      "binary": false,
+      "additions": 0,
+      "deletions": 0,
+      "hunks": []
+    },
+    {
+      "path": "src/renderer/src/styles.css",
+      "status": "added",
+      "binary": false,
+      "additions": 0,
+      "deletions": 0,
+      "hunks": []
+    },
+    {
+      "path": "tests/renderer/screens.test.tsx",
+      "status": "added",
+      "binary": false,
+      "additions": 0,
+      "deletions": 0,
+      "hunks": []
+    },
+    {
+      "path": "tests/renderer/walkthrough.test.tsx",
+      "status": "added",
+      "binary": false,
+      "additions": 0,
+      "deletions": 0,
+      "hunks": []
+    },
+    {
+      "path": "vitest.config.mts",
+      "status": "modified",
+      "binary": false,
+      "additions": 0,
+      "deletions": 0,
+      "hunks": []
+    }
+  ],
+  "changedLines": 0,
+  "sessionId": "fixture"
+}

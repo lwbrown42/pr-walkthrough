@@ -4,6 +4,8 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import App from '../../src/renderer/src/App'
 import type { OpenResult, PreloadApi, PublicSettings } from '../../src/shared/api'
 
+vi.mock('../../src/renderer/src/components/CodePane', () => ({ default: () => null }))
+
 const settings: PublicSettings = {
   model: 'm',
   maxTurns: 30,
@@ -39,7 +41,8 @@ beforeEach(() => {
     onGenerateProgress: vi.fn().mockReturnValue(() => {}),
     ask: vi.fn(),
     onChatText: vi.fn().mockReturnValue(() => {}),
-    readFile: vi.fn()
+    readFile: vi.fn(),
+    getFixture: vi.fn().mockResolvedValue(null)
   }
   window.api = api as unknown as PreloadApi
 })

@@ -35,6 +35,8 @@ export interface HandlerDeps {
   send: (channel: string, payload: unknown) => void
   /** Milliseconds since epoch. */
   now: () => number
+  /** Dev-only walkthrough from --fixture; also serves readFile. */
+  fixture?: Walkthrough | null
 }
 
 export type Handlers = {
@@ -54,7 +56,10 @@ function countLines(text: string): number {
 }
 
 export function createHandlers(deps: HandlerDeps): Handlers {
-  let current: { target: ReviewTarget; files: ChangedFile[]; changedLines: number } | null = null
+  const fixture = deps.fixture ?? null
+  let current: { target: ReviewTarget; files: ChangedFile[]; changedLines: number } | null = fixture
+    ? { target: fixture.target, files: fixture.files, changedLines: fixture.changedLines }
+    : null
   let walkthrough: Walkthrough | null = null
 
   async function computeLineCounts(
@@ -211,6 +216,10 @@ export function createHandlers(deps: HandlerDeps): Handlers {
       }
     },
 
+    async getFixture() {
+      return fixture
+    },
+
     async readFile({ sha, path }) {
       if (!current) return null
       return deps.readFileAt(current.target.worktreePath, sha, path)
@@ -223,6 +232,7 @@ export function registerIpc(opts: {
   settings: SettingsStore
   worktreesDir: string
   getWindow: () => BrowserWindow | null
+  fixture?: Walkthrough | null
 }): void {
   const { getWindow } = opts
   const handlers = createHandlers({
@@ -245,7 +255,8 @@ export function registerIpc(opts: {
       return res.canceled || res.filePaths.length === 0 ? null : res.filePaths[0]
     },
     send: (channel, payload) => getWindow()?.webContents.send(channel, payload),
-    now: () => Date.now()
+    now: () => Date.now(),
+    fixture: opts.fixture
   })
 
   ipcMain.handle(IPC.getSettings, () => handlers.getSettings())
@@ -254,5 +265,6 @@ export function registerIpc(opts: {
   ipcMain.handle(IPC.openTarget, (_e, req) => handlers.openTarget(req))
   ipcMain.handle(IPC.generate, (_e, target) => handlers.generate(target))
   ipcMain.handle(IPC.ask, (_e, req) => handlers.ask(req))
+  ipcMain.handle(IPC.getFixture, () => handlers.getFixture())
   ipcMain.handle(IPC.readFile, (_e, req) => handlers.readFile(req))
 }

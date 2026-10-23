@@ -258,3 +258,41 @@ button.link {
   min-height: 0;
   padding: 12px;
 }
+
+/* Code pane */
+.segment {
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  margin-bottom: 12px;
+  overflow: hidden;
+}
+.segment-header {
+  padding: 6px 10px;
+  font-size: 12px;
+  border-bottom: 1px solid var(--border);
+}
+.segment-context .segment-header {
+  font-style: italic;
+  opacity: 0.8;
+}
+.segment-label {
+  font-family: ui-monospace, Menlo, monospace;
+  font-weight: 600;
+}
+.segment-range {
+  opacity: 0.6;
+}
+.segment-note {
+  margin: 4px 0 0;
+}
+.segment-message {
+  padding: 16px 10px;
+  opacity: 0.7;
+}
+.segment-range-line {
+  background: rgba(100, 140, 255, 0.1);
+}
+.segment-range-gutter {
+  border-left: 3px solid #6489ff;
+  margin-left: 3px;
+}

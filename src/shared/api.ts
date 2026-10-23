@@ -33,6 +33,8 @@ export interface PreloadApi {
   onGenerateProgress(cb: (p: GenerateProgressEvent) => void): () => void
   ask(req: { stepId: string; question: string }): Promise<ChatMessage | ApiError>
   onChatText(cb: (chunk: string) => void): () => void
+  /** Dev-only: the walkthrough loaded via --fixture <file.json>, else null. */
+  getFixture(): Promise<Walkthrough | null>
   readFile(req: { sha: string; path: string }): Promise<string | null>
 }
 
@@ -46,6 +48,7 @@ export const IPC = {
   generate: 'api:generate',
   ask: 'api:ask',
   readFile: 'api:readFile',
+  getFixture: 'api:getFixture',
   generateProgress: 'api:generateProgress',
   chatText: 'api:chatText'
 } as const

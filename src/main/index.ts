@@ -1,9 +1,18 @@
 import { app, shell, BrowserWindow, safeStorage } from 'electron'
+import { readFileSync } from 'fs'
 import { join } from 'path'
 import { electronApp, optimizer, is } from '@electron-toolkit/utils'
 import icon from '../../resources/icon.png?asset'
 import { registerIpc } from './ipc'
 import { createSettingsStore } from './settings'
+import type { Walkthrough } from '../shared/walkthrough'
+
+/** Dev aid: `--fixture <file.json>` loads a Walkthrough and opens straight onto it. */
+function loadFixture(): Walkthrough | null {
+  const i = process.argv.indexOf('--fixture')
+  if (i < 0 || !process.argv[i + 1]) return null
+  return JSON.parse(readFileSync(process.argv[i + 1], 'utf8')) as Walkthrough
+}
 
 let mainWindow: BrowserWindow | null = null
 
@@ -67,7 +76,8 @@ app.whenReady().then(() => {
   registerIpc({
     settings,
     worktreesDir: join(userData, 'worktrees'),
-    getWindow: () => mainWindow
+    getWindow: () => mainWindow,
+    fixture: loadFixture()
   })
 
   createWindow()

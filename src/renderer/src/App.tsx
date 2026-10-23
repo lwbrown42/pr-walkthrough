@@ -26,7 +26,11 @@ function App(): React.JSX.Element | null {
   const init = (): void => {
     setLoadError(undefined)
     load()
-      .then((s) => setState(s.hasApiKey ? { screen: 'open' } : { screen: 'setup' }))
+      .then(async (s) => {
+        const fixture = await window.api.getFixture()
+        if (fixture) setState({ screen: 'walkthrough', walkthrough: fixture })
+        else setState(s.hasApiKey ? { screen: 'open' } : { screen: 'setup' })
+      })
       .catch((e: unknown) => setLoadError(e instanceof Error ? e.message : String(e)))
   }
 
