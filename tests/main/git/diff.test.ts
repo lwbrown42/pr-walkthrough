@@ -78,4 +78,8 @@ describe('git diff reading', () => {
     expect(await readFileAt(dir, baseSha, 'new.ts')).toBeNull()
     expect(await readFileAt(dir, headSha, 'new.ts')).toBe(lines(3, 'new'))
   })
+
+  it('rejects for an invalid sha instead of returning null', async () => {
+    await expect(readFileAt(dir, 'deadbeef', 'new.ts')).rejects.toThrow()
+  })
 })

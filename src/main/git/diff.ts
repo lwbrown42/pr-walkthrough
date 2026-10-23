@@ -83,7 +83,9 @@ export function countChangedLines(files: ChangedFile[]): number {
 export async function readFileAt(cwd: string, sha: string, path: string): Promise<string | null> {
   try {
     return await runGit(cwd, ['show', `${sha}:${path}`])
-  } catch {
-    return null
+  } catch (err) {
+    const message = err instanceof Error ? err.message : ''
+    if (/does not exist in|exists on disk, but not in/.test(message)) return null
+    throw err
   }
 }
