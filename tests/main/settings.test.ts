@@ -77,4 +77,26 @@ describe('settings store', () => {
     const s = createSettingsStore(dir, makeCrypto(false))
     expect(() => s.save({ apiKey: 'k' })).toThrow(/Keychain/)
   })
+
+  it('saving other settings works when Keychain is unavailable and preserves the stored key', () => {
+    createSettingsStore(dir, makeCrypto()).save({ apiKey: 'k1' })
+    const s = createSettingsStore(dir, makeCrypto(false))
+    expect(s.save({ maxTurns: 5 }).maxTurns).toBe(5)
+    expect(createSettingsStore(dir, makeCrypto()).get().apiKey).toBe('k1')
+  })
+
+  it('does not destroy the stored ciphertext when decrypt throws', () => {
+    createSettingsStore(dir, makeCrypto()).save({ apiKey: 'k1' })
+    const bad: SettingsCrypto = {
+      ...makeCrypto(),
+      decrypt: () => {
+        throw new Error('boom')
+      }
+    }
+    const s = createSettingsStore(dir, bad)
+    s.save({ model: 'm' })
+    const onDisk = JSON.parse(readFileSync(join(dir, 'settings.json'), 'utf8'))
+    expect(onDisk.apiKeyEncrypted).toBeTruthy()
+    expect(createSettingsStore(dir, makeCrypto()).get().apiKey).toBe('k1')
+  })
 })

@@ -54,18 +54,28 @@ export function createSettingsStore(dir: string, crypto: SettingsCrypto): Settin
   }
 
   const save = (patch: Partial<Settings>): Settings => {
-    const next = { ...get(), ...patch }
-    const { apiKey, ...rest } = next
-    let apiKeyEncrypted: string | null = null
-    if (apiKey) {
-      if (!crypto.available()) {
-        throw new Error('Secure storage (Keychain) is unavailable; cannot store the API key')
+    const stored = readStored()
+    const rest: Partial<Settings> = { ...patch }
+    delete rest.apiKey
+    let apiKeyEncrypted = stored.apiKeyEncrypted ?? null
+    if ('apiKey' in patch) {
+      if (patch.apiKey) {
+        if (!crypto.available()) {
+          throw new Error('Secure storage (Keychain) is unavailable; cannot store the API key')
+        }
+        apiKeyEncrypted = crypto.encrypt(patch.apiKey).toString('base64')
+      } else {
+        apiKeyEncrypted = null
       }
-      apiKeyEncrypted = crypto.encrypt(apiKey).toString('base64')
     }
+    const storedRest: Partial<Stored> = { ...stored }
+    delete storedRest.apiKeyEncrypted
     ensureDir()
-    writeFileSync(settingsPath, JSON.stringify({ ...rest, apiKeyEncrypted }, null, 2))
-    return next
+    writeFileSync(
+      settingsPath,
+      JSON.stringify({ ...DEFAULTS, ...storedRest, ...rest, apiKeyEncrypted }, null, 2)
+    )
+    return get()
   }
 
   const appendRunLog = (e: RunLogEntry): void => {
