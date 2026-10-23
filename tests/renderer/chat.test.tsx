@@ -56,7 +56,7 @@ describe('ChatPanel', () => {
     await userEvent.type(box(), 'Why?{Enter}')
     expect(ask).toHaveBeenCalledWith({ stepId: 's1', question: 'Why?' })
     expect(screen.getByText('Why?')).toBeTruthy()
-    expect((box() as HTMLTextAreaElement).disabled).toBe(true)
+    expect((box() as HTMLTextAreaElement).readOnly).toBe(true)
     act(() => chatCb?.('Because '))
     act(() => chatCb?.('of a.ts:3'))
     expect(screen.getByText('Because of a.ts:3')).toBeTruthy()
@@ -66,7 +66,8 @@ describe('ChatPanel', () => {
     expect(screen.queryByText('Because of a.ts:3')).toBeNull()
     expect(screen.getByText('Final **answer**')).toBeTruthy()
     expect(unsub).toHaveBeenCalled()
-    expect((box() as HTMLTextAreaElement).disabled).toBe(false)
+    expect((box() as HTMLTextAreaElement).readOnly).toBe(false)
+    expect(document.activeElement).toBe(box())
   })
 
   it('Shift+Enter adds a newline and blank questions do not send', async () => {

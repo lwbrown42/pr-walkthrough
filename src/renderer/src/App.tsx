@@ -69,6 +69,9 @@ function App(): React.JSX.Element | null {
           opened={state.opened}
           error={state.error}
           onOpened={(opened) => setState({ screen: 'open', opened })}
+          onInputsChanged={() =>
+            setState((s) => (s.screen === 'open' && (s.opened || s.error) ? { screen: 'open' } : s))
+          }
           onGenerate={() => setState({ screen: 'generating', opened: state.opened! })}
           onSettings={() => setState({ screen: 'setup' })}
         />
@@ -79,6 +82,7 @@ function App(): React.JSX.Element | null {
           target={state.opened.target}
           onDone={(walkthrough) => setState({ screen: 'walkthrough', walkthrough })}
           onError={(error) => setState({ screen: 'open', opened: state.opened, error })}
+          onCancelled={() => setState({ screen: 'open', opened: state.opened })}
         />
       )
     case 'walkthrough':

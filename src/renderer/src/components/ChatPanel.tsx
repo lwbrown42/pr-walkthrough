@@ -131,7 +131,9 @@ export default function ChatPanel({ stepId, steps, messages, onAppend }: Props):
         rows={2}
         placeholder="Ask about this step…"
         value={draft}
-        disabled={inFlight !== null}
+        // readOnly, not disabled, so the box keeps focus for the next question.
+        readOnly={inFlight !== null}
+        aria-busy={inFlight !== null}
         onChange={(e) => setDraft(e.target.value)}
         onKeyDown={(e) => {
           if (e.key === 'Enter' && !e.shiftKey && !e.nativeEvent.isComposing) {

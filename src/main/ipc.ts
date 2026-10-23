@@ -183,6 +183,9 @@ export function createHandlers(deps: HandlerDeps): Handlers {
           ]),
           computeLineCounts(target, files)
         ])
+        if (abortController.signal.aborted) {
+          throw new AgentRunError('cancelled', 'Generation was cancelled.')
+        }
         const result = await deps.generateWalkthrough({
           target,
           files,

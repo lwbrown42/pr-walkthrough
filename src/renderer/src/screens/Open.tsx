@@ -9,6 +9,8 @@ interface Props {
   opened?: OpenResult
   error?: string
   onOpened: (r: OpenResult) => void
+  /** The repo, ref or tab changed, so the opened result (if any) is stale. */
+  onInputsChanged: () => void
   onGenerate: () => void
   onSettings: () => void
 }
@@ -31,7 +33,23 @@ export default function Open(props: Props): React.JSX.Element {
 
   const pick = async (): Promise<void> => {
     const p = await window.api.pickRepo()
-    if (p) setRepoPath(p)
+    if (p) {
+      setRepoPath(p)
+      props.onInputsChanged()
+    }
+  }
+
+  const edit =
+    (set: (v: string) => void) =>
+    (e: React.ChangeEvent<HTMLInputElement>): void => {
+      set(e.target.value)
+      props.onInputsChanged()
+    }
+
+  const switchTab = (t: Tab): void => {
+    if (t === tab) return
+    setTab(t)
+    props.onInputsChanged()
   }
 
   const canOpen = repoPath !== '' && (tab === 'local' ? headRef.trim() !== '' : pr.trim() !== '')
@@ -85,7 +103,7 @@ export default function Open(props: Props): React.JSX.Element {
           role="tab"
           aria-selected={tab === 'local'}
           className={tab === 'local' ? 'active' : ''}
-          onClick={() => setTab('local')}
+          onClick={() => switchTab('local')}
         >
           Local branch
         </button>
@@ -93,7 +111,7 @@ export default function Open(props: Props): React.JSX.Element {
           role="tab"
           aria-selected={tab === 'github'}
           className={tab === 'github' ? 'active' : ''}
-          onClick={() => setTab('github')}
+          onClick={() => switchTab('github')}
         >
           GitHub PR
         </button>
@@ -103,17 +121,17 @@ export default function Open(props: Props): React.JSX.Element {
         <>
           <label>
             Head ref
-            <input value={headRef} onChange={(e) => setHeadRef(e.target.value)} />
+            <input value={headRef} onChange={edit(setHeadRef)} />
           </label>
           <label>
             Base ref (optional)
-            <input value={baseRef} onChange={(e) => setBaseRef(e.target.value)} />
+            <input value={baseRef} onChange={edit(setBaseRef)} />
           </label>
         </>
       ) : (
         <label>
           PR number or URL
-          <input value={pr} onChange={(e) => setPr(e.target.value)} />
+          <input value={pr} onChange={edit(setPr)} />
         </label>
       )}
 

@@ -1,4 +1,4 @@
-import { cleanup, render, screen, waitFor } from '@testing-library/react'
+import { act, cleanup, render, screen, waitFor } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import App from '../../src/renderer/src/App'
@@ -38,6 +38,7 @@ beforeEach(() => {
     pickRepo: vi.fn().mockResolvedValue(null),
     openTarget: vi.fn().mockResolvedValue(opened(10, false)),
     generate: vi.fn(),
+    cancelGenerate: vi.fn().mockResolvedValue(undefined),
     onGenerateProgress: vi.fn().mockReturnValue(() => {}),
     ask: vi.fn(),
     onChatText: vi.fn().mockReturnValue(() => {}),
@@ -135,6 +136,56 @@ describe('screens', () => {
     render(<App />)
     await openLocal(user)
     expect(await screen.findByText('open boom')).toBeTruthy()
+  })
+
+  it('ticks the elapsed time every second while generating', async () => {
+    api.generate.mockReturnValue(new Promise(() => {}))
+    const user = userEvent.setup()
+    render(<App />)
+    await openLocal(user)
+    vi.useFakeTimers()
+    try {
+      await act(async () => {
+        screen.getByRole('button', { name: 'Generate' }).click()
+      })
+      expect(screen.getByText('0:00')).toBeTruthy()
+      await act(async () => {
+        vi.advanceTimersByTime(3000)
+      })
+      expect(screen.getByText('0:03')).toBeTruthy()
+    } finally {
+      vi.useRealTimers()
+    }
+  })
+
+  it('cancels a generation and returns to Open without an error', async () => {
+    let resolve!: (v: unknown) => void
+    api.generate.mockReturnValue(new Promise((r) => (resolve = r)))
+    api.cancelGenerate.mockImplementation(async () =>
+      resolve({ error: { message: 'Generation was cancelled.', reason: 'cancelled' } })
+    )
+    const user = userEvent.setup()
+    render(<App />)
+    await openLocal(user)
+    await user.click(await screen.findByRole('button', { name: 'Generate' }))
+    await user.click(await screen.findByRole('button', { name: 'Cancel' }))
+    expect(api.cancelGenerate).toHaveBeenCalled()
+    expect(await screen.findByText('Open a change')).toBeTruthy()
+    expect(screen.queryByRole('alert')).toBeNull()
+    expect(screen.getByRole('button', { name: 'Generate' })).toBeTruthy()
+  })
+
+  it('clears the opened target when inputs change or tabs switch', async () => {
+    const user = userEvent.setup()
+    render(<App />)
+    await openLocal(user)
+    expect(await screen.findByRole('button', { name: 'Generate' })).toBeTruthy()
+    await user.type(screen.getByLabelText('Head ref'), 'x')
+    expect(screen.queryByRole('button', { name: 'Generate' })).toBeNull()
+    await user.click(screen.getByRole('button', { name: 'Open' }))
+    expect(await screen.findByRole('button', { name: 'Generate' })).toBeTruthy()
+    await user.click(screen.getByRole('tab', { name: 'GitHub PR' }))
+    expect(screen.queryByRole('button', { name: 'Generate' })).toBeNull()
   })
 
   it('blocks saving when maxTurns is empty', async () => {

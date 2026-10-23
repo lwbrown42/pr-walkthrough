@@ -18,6 +18,15 @@ self.MonacoEnvironment = {
 }
 loader.config({ monaco })
 
+// The code pane is read-only review of a partial checkout: type and syntax errors there are noise.
+for (const d of [monaco.typescript.typescriptDefaults, monaco.typescript.javascriptDefaults]) {
+  d.setDiagnosticsOptions({ noSemanticValidation: true, noSyntaxValidation: true })
+}
+monaco.json.jsonDefaults.setDiagnosticsOptions({ validate: false })
+for (const d of [monaco.css.cssDefaults, monaco.css.scssDefaults, monaco.css.lessDefaults]) {
+  d.setOptions({ ...d.options, validate: false })
+}
+
 const EXT_LANG: Record<string, string> = {
   ts: 'typescript',
   tsx: 'typescript',

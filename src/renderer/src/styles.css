@@ -253,6 +253,10 @@ button.link {
 .explanation p {
   margin: 0 0 8px;
 }
+.explanation-text {
+  /* Keep the agent's paragraph breaks. */
+  white-space: pre-wrap;
+}
 .chat-panel {
   flex: 1;
   min-height: 0;
