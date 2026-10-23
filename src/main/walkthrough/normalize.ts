@@ -14,8 +14,9 @@ function sanitizeSegment(
   fileByPath: Map<string, ChangedFile>,
   counts: LineCounts
 ): CodeSegment | null {
-  const deleted = fileByPath.get(seg.path)?.status === 'deleted'
-  const total = (deleted ? counts.base : counts.head)[seg.path]
+  const file = fileByPath.get(seg.path)
+  const useBase = file?.status === 'deleted' || (file?.oldPath === seg.path && file.path !== seg.path)
+  const total = (useBase ? counts.base : counts.head)[seg.path]
   if (total === undefined || total < 1) return null
   const clamp = (n: number): number => Math.min(Math.max(n, 1), total)
   const a = clamp(seg.startLine)

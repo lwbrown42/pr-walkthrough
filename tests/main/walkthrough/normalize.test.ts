@@ -107,10 +107,12 @@ describe('normalizeWalkthrough', () => {
       file({ path: 'img.png', binary: true }),
       file({ path: 'other.bin', binary: true })
     ]
-    const out = run([step('s1', { segments: [seg('old.ts', 1, 1), seg('img.png', 1, 1)] })], files, {
-      'old.ts': 5,
-      'img.png': 1
-    })
+    const out = run(
+      [step('s1', { segments: [seg('old.ts', 1, 1), seg('img.png', 1, 1)] })],
+      files,
+      { 'img.png': 1 },
+      { 'old.ts': 5 }
+    )
     const last = out.steps.at(-1)!
     expect(last.title).toBe('Everything else')
     expect(last.segments.map((s) => s.path)).toEqual(['other.bin'])
