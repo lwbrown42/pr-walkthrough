@@ -27,3 +27,22 @@ export interface ReviewTarget {
   title: string
   prNumber?: number
 }
+
+export interface Settings {
+  apiKey: string | null
+  model: string
+  maxTurns: number
+  maxBudgetUsd: number
+  lastRepoPath?: string
+}
+
+export interface RunLogEntry {
+  at: string
+  kind: 'generate' | 'chat'
+  prTitle: string
+  changedLines: number
+  durationMs: number
+  costUsd: number | null
+  turns: number | null
+  outcome: 'success' | string
+}
