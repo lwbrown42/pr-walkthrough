@@ -257,6 +257,45 @@ button.link {
   flex: 1;
   min-height: 0;
   padding: 12px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+.chat-earlier {
+  max-height: 30%;
+  overflow-y: auto;
+}
+.chat-earlier h4 {
+  margin: 8px 0 4px;
+  font-size: 12px;
+  opacity: 0.7;
+}
+.chat-list {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+.chat-message {
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  padding: 6px 8px;
+  border-radius: 6px;
+  border: 1px solid var(--border);
+}
+.chat-user {
+  align-self: flex-end;
+  max-width: 90%;
+  opacity: 0.85;
+}
+.chat-error {
+  color: #d9534f;
+}
+.chat-input {
+  resize: none;
+  font: inherit;
 }
 
 /* Code pane */

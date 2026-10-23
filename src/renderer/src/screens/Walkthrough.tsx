@@ -1,4 +1,5 @@
 import { useEffect, useState } from 'react'
+import type { ChatMessage } from '../../../shared/types'
 import type { Walkthrough as WalkthroughData } from '../../../shared/walkthrough'
 import ChatPanel from '../components/ChatPanel'
 import CodePane from '../components/CodePane'
@@ -18,6 +19,7 @@ function isTextTarget(t: EventTarget | null): boolean {
 export default function Walkthrough({ walkthrough, onExit }: Props): React.JSX.Element {
   const { steps, target, files } = walkthrough
   const [index, setIndex] = useState(0)
+  const [messages, setMessages] = useState<ChatMessage[]>([])
   const [mode, setMode] = useState<'diff' | 'plain'>('diff')
 
   useEffect(() => {
@@ -68,7 +70,12 @@ export default function Walkthrough({ walkthrough, onExit }: Props): React.JSX.E
         </main>
         <aside className="right-column">
           <ExplanationPanel step={step} index={index} total={steps.length} />
-          <ChatPanel stepId={step.id} />
+          <ChatPanel
+            stepId={step.id}
+            steps={steps}
+            messages={messages}
+            onAppend={(m) => setMessages((prev) => [...prev, m])}
+          />
         </aside>
       </div>
     </div>
