@@ -17,6 +17,18 @@ export class AgentRunError extends Error {
 /** The agent's only tools. This list is the safety boundary: nothing that writes, runs commands or reaches the web. */
 export const READ_ONLY_TOOLS = ['Read', 'Grep', 'Glob']
 
+let claudeExecutablePath: string | undefined
+
+/** Set once from main (which knows about Electron) to the real, spawnable Claude Code binary. */
+export function setClaudeExecutablePath(path: string | undefined): void {
+  claudeExecutablePath = path
+}
+
+/** Inside a packaged app the binary is unpacked next to app.asar; a child process can't run it from within the archive. */
+export function toUnpackedPath(path: string): string {
+  return path.replace(/\bapp\.asar(?=[\\/])/, 'app.asar.unpacked')
+}
+
 /**
  * Options shared by every agent run (walkthrough generation and chat): read-only tools that never
  * prompt, none of the user's own settings/CLAUDE.md/skills/hooks, and the run limits from settings.
@@ -25,6 +37,7 @@ export function buildAgentOptions(settings: Settings, cwd: string): Options {
   if (!settings.apiKey) throw new AgentRunError('no_api_key', 'No Anthropic API key is set.')
   return {
     cwd,
+    ...(claudeExecutablePath ? { pathToClaudeCodeExecutable: claudeExecutablePath } : {}),
     tools: [...READ_ONLY_TOOLS],
     allowedTools: [...READ_ONLY_TOOLS],
     // Pre-approved tools run; anything else is denied instead of prompting.

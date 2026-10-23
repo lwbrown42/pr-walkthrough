@@ -1,10 +1,12 @@
 import { app, shell, BrowserWindow, safeStorage } from 'electron'
 import { readFileSync } from 'fs'
+import { createRequire } from 'module'
 import { join } from 'path'
 import { electronApp, optimizer, is } from '@electron-toolkit/utils'
 import icon from '../../resources/icon.png?asset'
 import { registerIpc } from './ipc'
 import { createSettingsStore } from './settings'
+import { setClaudeExecutablePath, toUnpackedPath } from './agent/options'
 import type { Walkthrough } from '../shared/walkthrough'
 
 /** Dev aid: `--fixture <file.json>` loads a Walkthrough and opens straight onto it. */
@@ -12,6 +14,16 @@ function loadFixture(): Walkthrough | null {
   const i = process.argv.indexOf('--fixture')
   if (i < 0 || !process.argv[i + 1]) return null
   return JSON.parse(readFileSync(process.argv[i + 1], 'utf8')) as Walkthrough
+}
+
+/** Point the Agent SDK at the Claude Code binary outside app.asar (packaged apps can't spawn it from inside). */
+function configureClaudeExecutable(): void {
+  try {
+    const pkg = `@anthropic-ai/claude-agent-sdk-${process.platform}-${process.arch}/claude`
+    setClaudeExecutablePath(toUnpackedPath(createRequire(__filename).resolve(pkg)))
+  } catch (err) {
+    console.error('Could not locate the bundled Claude Code binary:', err)
+  }
 }
 
 let mainWindow: BrowserWindow | null = null
@@ -66,6 +78,8 @@ app.whenReady().then(() => {
   app.on('browser-window-created', (_, window) => {
     optimizer.watchWindowShortcuts(window)
   })
+
+  configureClaudeExecutable()
 
   const userData = app.getPath('userData')
   const settings = createSettingsStore(userData, {
