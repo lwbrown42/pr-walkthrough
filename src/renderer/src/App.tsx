@@ -1,16 +1,16 @@
 import { useEffect, useState } from 'react'
 import type { OpenResult, PublicSettings } from '../../shared/api'
-import type { Walkthrough } from '../../shared/walkthrough'
+import type { Walkthrough as WalkthroughData } from '../../shared/walkthrough'
 import Generating from './screens/Generating'
 import Open from './screens/Open'
 import Setup from './screens/Setup'
-import WalkthroughPlaceholder from './screens/WalkthroughPlaceholder'
+import WalkthroughScreen from './screens/Walkthrough'
 
 type State =
   | { screen: 'setup' }
   | { screen: 'open'; opened?: OpenResult; error?: string }
   | { screen: 'generating'; opened: OpenResult }
-  | { screen: 'walkthrough'; walkthrough: Walkthrough }
+  | { screen: 'walkthrough'; walkthrough: WalkthroughData }
 
 function App(): React.JSX.Element | null {
   const [settings, setSettings] = useState<PublicSettings>()
@@ -78,7 +78,12 @@ function App(): React.JSX.Element | null {
         />
       )
     case 'walkthrough':
-      return <WalkthroughPlaceholder walkthrough={state.walkthrough} />
+      return (
+        <WalkthroughScreen
+          walkthrough={state.walkthrough}
+          onExit={() => setState({ screen: 'open' })}
+        />
+      )
   }
 }
 

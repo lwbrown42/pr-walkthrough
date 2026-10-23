@@ -92,7 +92,7 @@ describe('screens', () => {
     ).toBeTruthy()
     await user.click(screen.getByRole('button', { name: 'Generate' }))
     expect(api.generate).toHaveBeenCalledWith(target)
-    expect(await screen.findByText('First step')).toBeTruthy()
+    expect(await screen.findByText('Step 1 of 1')).toBeTruthy()
   })
 
   it('shows a no_api_key error naming the API key, with Retry', async () => {
