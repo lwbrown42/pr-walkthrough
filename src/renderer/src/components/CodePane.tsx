@@ -144,7 +144,7 @@ function SegmentView({
         modified={text.modified}
         options={{ ...OPTIONS, renderSideBySide: false, originalEditable: false }}
         onMount={(ed) => {
-          editorRef.current = ed.getModifiedEditor()
+          editorRef.current = status === 'deleted' ? ed.getOriginalEditor() : ed.getModifiedEditor()
           setReady((n) => n + 1)
         }}
       />

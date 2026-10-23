@@ -45,9 +45,9 @@
       "segments": [
         {
           "kind": "change",
-          "path": "src/renderer/src/screens/WalkthroughPlaceholder.tsx",
+          "path": "src/renderer/src/components/Versions.tsx",
           "startLine": 1,
-          "endLine": 20
+          "endLine": 15
         }
       ]
     }
