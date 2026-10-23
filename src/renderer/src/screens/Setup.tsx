@@ -12,17 +12,30 @@ export default function Setup({ settings, onSaved, onCancel }: Props): React.JSX
   const [model, setModel] = useState(settings.model)
   const [maxTurns, setMaxTurns] = useState(String(settings.maxTurns))
   const [maxBudgetUsd, setMaxBudgetUsd] = useState(String(settings.maxBudgetUsd))
+  const [error, setError] = useState<string>()
   const canSave = apiKey.trim() !== '' || settings.hasApiKey
 
   const save = async (e: React.FormEvent): Promise<void> => {
     e.preventDefault()
+    const turns = Number(maxTurns)
+    const budget = Number(maxBudgetUsd)
+    if (model.trim() === '') return setError('Model is required.')
+    if (maxTurns.trim() === '' || !Number.isInteger(turns) || turns <= 0)
+      return setError('Max turns must be a positive whole number.')
+    if (maxBudgetUsd.trim() === '' || !Number.isFinite(budget) || budget <= 0)
+      return setError('Max budget must be a positive number.')
+    setError(undefined)
     const patch: Parameters<typeof window.api.saveSettings>[0] = {
-      model,
-      maxTurns: Number(maxTurns),
-      maxBudgetUsd: Number(maxBudgetUsd)
+      model: model.trim(),
+      maxTurns: turns,
+      maxBudgetUsd: budget
     }
     if (apiKey.trim() !== '') patch.apiKey = apiKey.trim()
-    await window.api.saveSettings(patch)
+    try {
+      await window.api.saveSettings(patch)
+    } catch (err) {
+      return setError(err instanceof Error ? err.message : String(err))
+    }
     onSaved()
   }
 
@@ -44,7 +57,12 @@ export default function Setup({ settings, onSaved, onCancel }: Props): React.JSX
       </label>
       <label>
         Max turns
-        <input type="number" min={1} value={maxTurns} onChange={(e) => setMaxTurns(e.target.value)} />
+        <input
+          type="number"
+          min={1}
+          value={maxTurns}
+          onChange={(e) => setMaxTurns(e.target.value)}
+        />
       </label>
       <label>
         Max budget (USD)
@@ -56,6 +74,11 @@ export default function Setup({ settings, onSaved, onCancel }: Props): React.JSX
           onChange={(e) => setMaxBudgetUsd(e.target.value)}
         />
       </label>
+      {error && (
+        <div className="error" role="alert">
+          <p>{error}</p>
+        </div>
+      )}
       <div className="row">
         <button type="submit" disabled={!canSave}>
           Save

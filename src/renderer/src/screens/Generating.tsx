@@ -26,10 +26,13 @@ export default function Generating({ target, onDone, onError }: Props): React.JS
   useEffect(() => {
     if (started.current) return
     started.current = true
-    void window.api.generate(target).then((res) => {
-      if ('error' in res) cbs.current.onError(friendlyError(res.error))
-      else cbs.current.onDone(res)
-    })
+    window.api
+      .generate(target)
+      .then((res) => {
+        if ('error' in res) cbs.current.onError(friendlyError(res.error))
+        else cbs.current.onDone(res)
+      })
+      .catch((e: unknown) => cbs.current.onError(e instanceof Error ? e.message : String(e)))
   }, [target])
 
   return (

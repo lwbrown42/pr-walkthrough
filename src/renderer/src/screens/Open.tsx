@@ -52,6 +52,8 @@ export default function Open(props: Props): React.JSX.Element {
       const res = await window.api.openTarget(req)
       if ('error' in res) setOpenError(friendlyError(res.error))
       else props.onOpened(res)
+    } catch (e) {
+      setOpenError(e instanceof Error ? e.message : String(e))
     } finally {
       setBusy(false)
     }

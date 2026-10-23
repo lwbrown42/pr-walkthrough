@@ -64,7 +64,11 @@ describe('screens', () => {
     const user = userEvent.setup()
     render(<App />)
     await openLocal(user)
-    expect(api.openTarget).toHaveBeenCalledWith({ kind: 'local', repoPath: '/repo', headRef: 'feature' })
+    expect(api.openTarget).toHaveBeenCalledWith({
+      kind: 'local',
+      repoPath: '/repo',
+      headRef: 'feature'
+    })
     expect(await screen.findByText('0 files, 10 changed lines')).toBeTruthy()
   })
 
@@ -110,5 +114,42 @@ describe('screens', () => {
     render(<App />)
     await openLocal(user)
     expect(await screen.findByText(message)).toBeTruthy()
+  })
+
+  it('returns to Open with the error when generate rejects', async () => {
+    api.generate.mockRejectedValue(new Error('ipc boom'))
+    const user = userEvent.setup()
+    render(<App />)
+    await openLocal(user)
+    await user.click(await screen.findByRole('button', { name: 'Generate' }))
+    expect(await screen.findByText('ipc boom')).toBeTruthy()
+    expect(screen.getByRole('button', { name: 'Retry' })).toBeTruthy()
+  })
+
+  it('shows the error when openTarget rejects', async () => {
+    api.openTarget.mockRejectedValue(new Error('open boom'))
+    const user = userEvent.setup()
+    render(<App />)
+    await openLocal(user)
+    expect(await screen.findByText('open boom')).toBeTruthy()
+  })
+
+  it('blocks saving when maxTurns is empty', async () => {
+    const user = userEvent.setup()
+    render(<App />)
+    await user.click(await screen.findByRole('button', { name: 'Settings' }))
+    await user.clear(await screen.findByLabelText('Max turns'))
+    await user.click(screen.getByRole('button', { name: 'Save' }))
+    expect(await screen.findByText(/Max turns must be/)).toBeTruthy()
+    expect(api.saveSettings).not.toHaveBeenCalled()
+  })
+
+  it('offers Retry when getSettings rejects', async () => {
+    api.getSettings.mockRejectedValueOnce(new Error('settings boom'))
+    const user = userEvent.setup()
+    render(<App />)
+    expect(await screen.findByText('settings boom')).toBeTruthy()
+    await user.click(screen.getByRole('button', { name: 'Retry' }))
+    expect(await screen.findByText('Open a change')).toBeTruthy()
   })
 })
