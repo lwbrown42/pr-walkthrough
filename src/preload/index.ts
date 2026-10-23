@@ -1,5 +1,4 @@
 import { contextBridge, ipcRenderer, type IpcRendererEvent } from 'electron'
-import { electronAPI } from '@electron-toolkit/preload'
 import { IPC, type PreloadApi } from '../shared/api'
 
 function subscribe<T>(channel: string, cb: (payload: T) => void): () => void {
@@ -22,17 +21,13 @@ const api: PreloadApi = {
   readFile: (req) => ipcRenderer.invoke(IPC.readFile, req)
 }
 
-// The template's `electron` toolkit exposure stays: the template renderer still uses it.
 if (process.contextIsolated) {
   try {
-    contextBridge.exposeInMainWorld('electron', electronAPI)
     contextBridge.exposeInMainWorld('api', api)
   } catch (error) {
     console.error(error)
   }
 } else {
-  // @ts-ignore (define in dts)
-  window.electron = electronAPI
   // @ts-ignore (define in dts)
   window.api = api
 }

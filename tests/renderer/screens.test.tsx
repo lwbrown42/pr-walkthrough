@@ -1,0 +1,114 @@
+import { cleanup, render, screen, waitFor } from '@testing-library/react'
+import userEvent from '@testing-library/user-event'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
+import App from '../../src/renderer/src/App'
+import type { OpenResult, PreloadApi, PublicSettings } from '../../src/shared/api'
+
+const settings: PublicSettings = {
+  model: 'm',
+  maxTurns: 30,
+  maxBudgetUsd: 5,
+  hasApiKey: true,
+  lastRepoPath: '/repo'
+}
+
+const target = {
+  kind: 'local' as const,
+  repoPath: '/repo',
+  worktreePath: '/wt',
+  baseSha: 'a',
+  headSha: 'b',
+  title: 'My PR'
+}
+
+function opened(changedLines: number, overLimit: boolean): OpenResult {
+  return { target, files: [], changedLines, overLimit }
+}
+
+afterEach(cleanup)
+
+let api: { [K in keyof PreloadApi]: ReturnType<typeof vi.fn> }
+
+beforeEach(() => {
+  api = {
+    getSettings: vi.fn().mockResolvedValue(settings),
+    saveSettings: vi.fn().mockResolvedValue(undefined),
+    pickRepo: vi.fn().mockResolvedValue(null),
+    openTarget: vi.fn().mockResolvedValue(opened(10, false)),
+    generate: vi.fn(),
+    onGenerateProgress: vi.fn().mockReturnValue(() => {}),
+    ask: vi.fn(),
+    onChatText: vi.fn().mockReturnValue(() => {}),
+    readFile: vi.fn()
+  }
+  window.api = api as unknown as PreloadApi
+})
+
+async function openLocal(user: ReturnType<typeof userEvent.setup>): Promise<void> {
+  await user.type(await screen.findByLabelText('Head ref'), 'feature')
+  await user.click(screen.getByRole('button', { name: 'Open' }))
+}
+
+describe('screens', () => {
+  it('shows Setup without an API key and saves it', async () => {
+    api.getSettings.mockResolvedValue({ ...settings, hasApiKey: false })
+    const user = userEvent.setup()
+    render(<App />)
+    await user.type(await screen.findByLabelText('Anthropic API key'), 'sk-test')
+    await user.click(screen.getByRole('button', { name: 'Save' }))
+    expect(api.saveSettings).toHaveBeenCalledWith(expect.objectContaining({ apiKey: 'sk-test' }))
+    expect(await screen.findByText('Open a change')).toBeTruthy()
+  })
+
+  it('prefills the repo, opens a target and shows counts', async () => {
+    const user = userEvent.setup()
+    render(<App />)
+    await openLocal(user)
+    expect(api.openTarget).toHaveBeenCalledWith({ kind: 'local', repoPath: '/repo', headRef: 'feature' })
+    expect(await screen.findByText('0 files, 10 changed lines')).toBeTruthy()
+  })
+
+  it('warns when over the limit and Generate still works', async () => {
+    api.openTarget.mockResolvedValue(opened(2000, true))
+    api.generate.mockResolvedValue({
+      summary: '',
+      steps: [{ id: 's1', title: 'First step', whyNext: '', explanation: '', segments: [] }],
+      target,
+      files: [],
+      changedLines: 2000,
+      sessionId: 'x'
+    })
+    const user = userEvent.setup()
+    render(<App />)
+    await openLocal(user)
+    expect(
+      await screen.findByText(
+        'This PR has 2000 changed lines, above the 1,300 line limit. The walkthrough may be slower or less accurate.'
+      )
+    ).toBeTruthy()
+    await user.click(screen.getByRole('button', { name: 'Generate' }))
+    expect(api.generate).toHaveBeenCalledWith(target)
+    expect(await screen.findByText('First step')).toBeTruthy()
+  })
+
+  it('shows a no_api_key error naming the API key, with Retry', async () => {
+    api.generate.mockResolvedValue({ error: { message: 'raw', reason: 'no_api_key' } })
+    const user = userEvent.setup()
+    render(<App />)
+    await openLocal(user)
+    await user.click(await screen.findByRole('button', { name: 'Generate' }))
+    expect(await screen.findByText(/API key/)).toBeTruthy()
+    api.generate.mockClear()
+    await user.click(screen.getByRole('button', { name: 'Retry' }))
+    await waitFor(() => expect(api.generate).toHaveBeenCalledTimes(1))
+  })
+
+  it('shows GitHub CLI errors from openTarget verbatim', async () => {
+    const message = 'GitHub CLI (gh) is not installed or not logged in'
+    api.openTarget.mockResolvedValue({ error: { message } })
+    const user = userEvent.setup()
+    render(<App />)
+    await openLocal(user)
+    expect(await screen.findByText(message)).toBeTruthy()
+  })
+})

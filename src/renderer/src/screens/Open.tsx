@@ -1,0 +1,154 @@
+import { useEffect, useState } from 'react'
+import type { OpenRequest, OpenResult } from '../../../shared/api'
+import { CHANGED_LINES_LIMIT } from '../../../shared/api'
+import { friendlyError } from '../errors'
+
+interface Props {
+  lastRepoPath?: string
+  /** Set after a successful open (kept when generation fails, so Retry works). */
+  opened?: OpenResult
+  error?: string
+  onOpened: (r: OpenResult) => void
+  onGenerate: () => void
+  onSettings: () => void
+}
+
+type Tab = 'local' | 'github'
+
+export default function Open(props: Props): React.JSX.Element {
+  const { opened, error } = props
+  const [repoPath, setRepoPath] = useState(props.lastRepoPath ?? '')
+  const [tab, setTab] = useState<Tab>('local')
+  const [headRef, setHeadRef] = useState('')
+  const [baseRef, setBaseRef] = useState('')
+  const [pr, setPr] = useState('')
+  const [busy, setBusy] = useState(false)
+  const [openError, setOpenError] = useState<string>()
+
+  useEffect(() => {
+    if (props.lastRepoPath) setRepoPath((cur) => cur || props.lastRepoPath!)
+  }, [props.lastRepoPath])
+
+  const pick = async (): Promise<void> => {
+    const p = await window.api.pickRepo()
+    if (p) setRepoPath(p)
+  }
+
+  const canOpen = repoPath !== '' && (tab === 'local' ? headRef.trim() !== '' : pr.trim() !== '')
+
+  const open = async (): Promise<void> => {
+    const req: OpenRequest =
+      tab === 'local'
+        ? {
+            kind: 'local',
+            repoPath,
+            headRef: headRef.trim(),
+            ...(baseRef.trim() ? { baseRef: baseRef.trim() } : {})
+          }
+        : { kind: 'github', repoPath, pr: pr.trim() }
+    setBusy(true)
+    setOpenError(undefined)
+    try {
+      const res = await window.api.openTarget(req)
+      if ('error' in res) setOpenError(friendlyError(res.error))
+      else props.onOpened(res)
+    } finally {
+      setBusy(false)
+    }
+  }
+
+  const shownError = error ?? openError
+
+  return (
+    <div className="screen">
+      <div className="row between">
+        <h1>Open a change</h1>
+        <button type="button" className="link" onClick={props.onSettings}>
+          Settings
+        </button>
+      </div>
+
+      <label>
+        Repository folder
+        <div className="row">
+          <input value={repoPath} readOnly placeholder="No folder selected" />
+          <button type="button" onClick={pick}>
+            Pick…
+          </button>
+        </div>
+      </label>
+
+      <div className="tabs" role="tablist">
+        <button
+          role="tab"
+          aria-selected={tab === 'local'}
+          className={tab === 'local' ? 'active' : ''}
+          onClick={() => setTab('local')}
+        >
+          Local branch
+        </button>
+        <button
+          role="tab"
+          aria-selected={tab === 'github'}
+          className={tab === 'github' ? 'active' : ''}
+          onClick={() => setTab('github')}
+        >
+          GitHub PR
+        </button>
+      </div>
+
+      {tab === 'local' ? (
+        <>
+          <label>
+            Head ref
+            <input value={headRef} onChange={(e) => setHeadRef(e.target.value)} />
+          </label>
+          <label>
+            Base ref (optional)
+            <input value={baseRef} onChange={(e) => setBaseRef(e.target.value)} />
+          </label>
+        </>
+      ) : (
+        <label>
+          PR number or URL
+          <input value={pr} onChange={(e) => setPr(e.target.value)} />
+        </label>
+      )}
+
+      <div className="row">
+        <button type="button" disabled={!canOpen || busy} onClick={open}>
+          {busy ? 'Opening…' : 'Open'}
+        </button>
+      </div>
+
+      {opened && (
+        <div className="panel">
+          <p>
+            {opened.files.length} files, {opened.changedLines} changed lines
+          </p>
+          {opened.overLimit && (
+            <p className="warning">
+              {`This PR has ${opened.changedLines} changed lines, above the ${CHANGED_LINES_LIMIT.toLocaleString('en-US')} line limit. The walkthrough may be slower or less accurate.`}
+            </p>
+          )}
+          <div className="row">
+            <button type="button" onClick={props.onGenerate}>
+              Generate
+            </button>
+          </div>
+        </div>
+      )}
+
+      {shownError && (
+        <div className="error" role="alert">
+          <p>{shownError}</p>
+          {error && opened && (
+            <button type="button" onClick={props.onGenerate}>
+              Retry
+            </button>
+          )}
+        </div>
+      )}
+    </div>
+  )
+}
