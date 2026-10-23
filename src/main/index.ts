@@ -7,6 +7,7 @@ import icon from '../../resources/icon.png?asset'
 import { registerIpc } from './ipc'
 import { createSettingsStore } from './settings'
 import { setClaudeExecutablePath, toUnpackedPath } from './agent/options'
+import { withHomebrewPath } from './git/run'
 import type { Walkthrough } from '../shared/walkthrough'
 
 /** Dev aid: `--fixture <file.json>` loads a Walkthrough and opens straight onto it. */
@@ -26,14 +27,19 @@ function configureClaudeExecutable(): void {
   }
 }
 
+// Finder/Dock launches get launchd's minimal PATH; make Homebrew's gh (and git) findable.
+process.env.PATH = withHomebrewPath(process.env.PATH)
+
 let mainWindow: BrowserWindow | null = null
 
 function createWindow(): void {
   // Create the browser window.
   mainWindow = new BrowserWindow({
     title: 'Code Review Helper',
-    width: 900,
-    height: 670,
+    width: 1440,
+    height: 900,
+    minWidth: 1100,
+    minHeight: 700,
     show: false,
     autoHideMenuBar: true,
     ...(process.platform === 'linux' ? { icon } : {}),

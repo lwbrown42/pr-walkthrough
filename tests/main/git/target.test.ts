@@ -93,3 +93,89 @@ describe('resolveGithubPr', () => {
     ).rejects.toThrow(/GitHub CLI/)
   })
 })
+
+describe('runGh / PATH', () => {
+  it('reports a missing gh binary distinctly', async () => {
+    const { runGh } = await import('../../../src/main/git/run')
+    const saved = process.env.PATH
+    process.env.PATH = '/nonexistent-crh'
+    try {
+      await expect(runGh(tmpdir(), ['--version'])).rejects.toThrow(
+        'GitHub CLI (gh) not found on PATH — install it with Homebrew'
+      )
+    } finally {
+      process.env.PATH = saved
+    }
+  })
+
+  it('resolveGithubPr passes the not-found message through unwrapped', async () => {
+    const { GH_NOT_FOUND } = await import('../../../src/main/git/run')
+    await expect(
+      resolveGithubPr({ repoPath: '/x', pr: '1', worktreesDir: '/y' }, {
+        runGh: async () => {
+          throw new Error(GH_NOT_FOUND)
+        }
+      })
+    ).rejects.toThrow(new Error(GH_NOT_FOUND))
+  })
+
+  it('prepends Homebrew bin dirs to a launchd PATH once', async () => {
+    const { withHomebrewPath } = await import('../../../src/main/git/run')
+    expect(withHomebrewPath('/usr/bin:/bin:/usr/sbin:/sbin')).toBe(
+      '/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin'
+    )
+    expect(withHomebrewPath('/usr/local/bin:/opt/homebrew/bin:/usr/bin')).toBe(
+      '/usr/local/bin:/opt/homebrew/bin:/usr/bin'
+    )
+    expect(withHomebrewPath(undefined)).toBe('/opt/homebrew/bin:/usr/local/bin')
+  })
+})
+
+describe('worktree recovery', () => {
+  it('recreates the worktree after its folder was deleted', async () => {
+    const { repo, wt } = await setup()
+    const opts = { repoPath: repo.dir, headRef: 'feature', worktreesDir: wt }
+    const a = await resolveLocalBranch(opts)
+    await rm(a.worktreePath, { recursive: true, force: true })
+    const b = await resolveLocalBranch(opts)
+    expect(b.worktreePath).toBe(a.worktreePath)
+    expect(await readFile(join(b.worktreePath, 'f.txt'), 'utf8')).toBe('feature\n')
+  })
+
+  it('refuses to reuse a folder that is not a registered worktree, leaving it intact', async () => {
+    const { repo, wt } = await setup()
+    const opts = { repoPath: repo.dir, headRef: 'feature', worktreesDir: wt }
+    const a = await resolveLocalBranch(opts)
+    await runGit(repo.dir, ['worktree', 'remove', '--force', a.worktreePath])
+    const { mkdir, writeFile } = await import('node:fs/promises')
+    await mkdir(a.worktreePath, { recursive: true })
+    await writeFile(join(a.worktreePath, 'keep.txt'), 'mine\n')
+    await expect(resolveLocalBranch(opts)).rejects.toThrow(/not a git worktree/)
+    expect(await readFile(join(a.worktreePath, 'keep.txt'), 'utf8')).toBe('mine\n')
+  })
+})
+
+describe('resolveGithubPr repo check', () => {
+  const fakeGh = (nameWithOwner: string) => async (_cwd: string, args: string[]) => {
+    if (args[0] === 'repo') return JSON.stringify({ nameWithOwner })
+    throw new Error('stop after repo check')
+  }
+
+  it('rejects a PR URL from a different repo', async () => {
+    await expect(
+      resolveGithubPr(
+        { repoPath: '/x', pr: 'https://github.com/other/thing/pull/5', worktreesDir: '/y' },
+        { runGh: fakeGh('me/app') }
+      )
+    ).rejects.toThrow('This PR is from other/thing, but the selected folder is me/app.')
+  })
+
+  it('accepts a matching URL (case-insensitive) and moves on', async () => {
+    await expect(
+      resolveGithubPr(
+        { repoPath: '/x', pr: 'https://github.com/Me/App/pull/5', worktreesDir: '/y' },
+        { runGh: fakeGh('me/app') }
+      )
+    ).rejects.toThrow(/stop after repo check/)
+  })
+})

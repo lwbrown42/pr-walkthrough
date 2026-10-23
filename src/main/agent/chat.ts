@@ -39,8 +39,17 @@ export async function askAboutStep(args: AskArgs): Promise<AskResult> {
     includePartialMessages: true
   }
 
-  let answer = ''
+  // Text of each top-level assistant message, in order; turns are joined with a blank line.
+  const turns = new Map<string, string>()
   let sawDelta = false
+  let streamedText = false
+  let pendingSeparator = false
+  const emit = (text: string): void => {
+    if (pendingSeparator && streamedText) onText?.('\n\n')
+    pendingSeparator = false
+    streamedText = true
+    onText?.(text)
+  }
   let final: SDKResultMessage | undefined
   try {
     for await (const msg of queryFn({
@@ -51,16 +60,22 @@ export async function askAboutStep(args: AskArgs): Promise<AskResult> {
       if ('parent_tool_use_id' in msg && msg.parent_tool_use_id) continue
       if (msg.type === 'stream_event') {
         const e = msg.event
-        if (e.type === 'content_block_delta' && e.delta.type === 'text_delta') {
+        if (e.type === 'message_start') {
+          pendingSeparator = true
+        } else if (e.type === 'content_block_delta' && e.delta.type === 'text_delta') {
           sawDelta = true
-          onText?.(e.delta.text)
+          emit(e.delta.text)
         }
       } else if (msg.type === 'assistant') {
+        const id = msg.message.id
         for (const block of msg.message.content) {
           if (block.type !== 'text') continue
-          answer += block.text
           // Without partial deltas, surface whole text blocks so the UI still updates.
-          if (!sawDelta) onText?.(block.text)
+          if (!sawDelta) {
+            if (!turns.has(id)) pendingSeparator = true
+            emit(block.text)
+          }
+          turns.set(id, (turns.get(id) ?? '') + block.text)
         }
       } else if (msg.type === 'result') {
         final = msg
@@ -77,5 +92,8 @@ export async function askAboutStep(args: AskArgs): Promise<AskResult> {
   const error = resultError(final)
   if (error) throw error
 
+  // The success result carries the final assistant text; fall back to the collected turns.
+  const fromResult = final.subtype === 'success' ? final.result : ''
+  const answer = fromResult || [...turns.values()].filter((t) => t !== '').join('\n\n')
   return { answer, sessionId: final.session_id, costUsd: final.total_cost_usd ?? null }
 }

@@ -31,6 +31,14 @@ const run = (steps: Step[], files: ChangedFile[], head: Record<string, number> =
   normalizeWalkthrough({ summary: 's', steps }, files, { head, base })
 
 describe('normalizeWalkthrough', () => {
+  it('de-duplicates step ids with -2, -3 suffixes', () => {
+    const out = run(
+      [step('a'), step('a'), step('b'), step('a'), step('a-2')],
+      []
+    )
+    expect(out.steps.map((s) => s.id)).toEqual(['a', 'a-2', 'b', 'a-3', 'a-2-2'])
+  })
+
   it('drops unknown paths, clamps and swaps', () => {
     const out = run(
       [step('s1', { segments: [seg('ghost.ts', 1, 2), seg('a.ts', 90, 200), seg('a.ts', 20, 10)] })],

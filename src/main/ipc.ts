@@ -13,7 +13,7 @@ import type { Walkthrough } from '../shared/walkthrough'
 import { askAboutStep } from './agent/chat'
 import { generateWalkthrough } from './agent/generate'
 import { AgentRunError } from './agent/options'
-import { countChangedLines, getChangedFiles, readFileAt } from './git/diff'
+import { countChangedLines, getChangedFiles, PLAIN_DIFF_FLAGS, readFileAt } from './git/diff'
 import { runGit } from './git/run'
 import { resolveGithubPr, resolveLocalBranch } from './git/target'
 import type { SettingsStore } from './settings'
@@ -49,6 +49,17 @@ function toApiError(err: unknown): ApiError {
   return { error: reason ? { message, reason } : { message } }
 }
 
+/** At most this many `git show` processes run at once. */
+const READ_CONCURRENCY = 8
+
+async function runLimited(jobs: (() => Promise<void>)[], limit: number): Promise<void> {
+  let next = 0
+  const worker = async (): Promise<void> => {
+    while (next < jobs.length) await jobs[next++]()
+  }
+  await Promise.all(Array.from({ length: Math.min(limit, jobs.length) }, worker))
+}
+
 function countLines(text: string): number {
   if (text === '') return 0
   const n = text.split('\n').length
@@ -68,31 +79,33 @@ export function createHandlers(deps: HandlerDeps): Handlers {
   ): Promise<LineCounts> {
     const counts: LineCounts = { head: {}, base: {} }
     const cwd = target.worktreePath
-    await Promise.all(
-      files
-        .filter((f) => !f.binary)
-        .flatMap((f) => {
-          const jobs: Promise<void>[] = []
-          if (f.status !== 'deleted') {
-            jobs.push(
-              deps.readFileAt(cwd, target.headSha, f.path).then((t) => {
-                if (t !== null) counts.head[f.path] = countLines(t)
-              })
-            )
-          }
-          if (f.status !== 'added') {
-            const basePath = f.status === 'renamed' ? (f.oldPath ?? f.path) : f.path
-            jobs.push(
-              deps.readFileAt(cwd, target.baseSha, basePath).then((t) => {
-                if (t !== null) counts.base[basePath] = countLines(t)
-              })
-            )
-          }
-          return jobs
-        })
-    )
+    // One unreadable file (gitlink, odd path) must not fail the run: skip it and let
+    // normalization drop or fill its segments.
+    const job =
+      (sha: string, path: string, into: Record<string, number>) => async (): Promise<void> => {
+        try {
+          const t = await deps.readFileAt(cwd, sha, path)
+          if (t !== null) into[path] = countLines(t)
+        } catch {
+          // skipped
+        }
+      }
+    const jobs = files
+      .filter((f) => !f.binary)
+      .flatMap((f) => {
+        const out: (() => Promise<void>)[] = []
+        if (f.status !== 'deleted') out.push(job(target.headSha, f.path, counts.head))
+        if (f.status !== 'added') {
+          const basePath = f.status === 'renamed' ? (f.oldPath ?? f.path) : f.path
+          out.push(job(target.baseSha, basePath, counts.base))
+        }
+        return out
+      })
+    await runLimited(jobs, READ_CONCURRENCY)
     return counts
   }
+
+  let generation: AbortController | null = null
 
   return {
     async getSettings() {
@@ -148,6 +161,9 @@ export function createHandlers(deps: HandlerDeps): Handlers {
           changedLines: current?.changedLines ?? 0,
           ...partial
         })
+      const abortController = new AbortController()
+      generation?.abort()
+      generation = abortController
       try {
         const files =
           current &&
@@ -158,7 +174,13 @@ export function createHandlers(deps: HandlerDeps): Handlers {
         const changedLines = deps.countChangedLines(files)
         current = { target, files, changedLines }
         const [diffText, lineCounts] = await Promise.all([
-          deps.runGit(target.worktreePath, ['diff', '-M', target.baseSha, target.headSha]),
+          deps.runGit(target.worktreePath, [
+            'diff',
+            ...PLAIN_DIFF_FLAGS,
+            '-M',
+            target.baseSha,
+            target.headSha
+          ]),
           computeLineCounts(target, files)
         ])
         const result = await deps.generateWalkthrough({
@@ -167,6 +189,11 @@ export function createHandlers(deps: HandlerDeps): Handlers {
           diffText,
           lineCounts,
           settings: deps.settings.get(),
+          abortController,
+          readLineCount: async (path) => {
+            const t = await deps.readFileAt(target.worktreePath, target.headSha, path)
+            return t === null ? null : countLines(t)
+          },
           onProgress: (p) =>
             deps.send(IPC.generateProgress, { ...p, elapsedMs: deps.now() - started })
         })
@@ -185,14 +212,24 @@ export function createHandlers(deps: HandlerDeps): Handlers {
         })
         return walkthrough
       } catch (err) {
+        const agentErr = err instanceof AgentRunError ? err : null
         entry({
-          outcome: err instanceof AgentRunError ? err.reason : 'failed',
-          costUsd: null,
-          turns: null,
-          durationMs: deps.now() - started
+          outcome: abortController.signal.aborted ? 'cancelled' : (agentErr?.reason ?? 'failed'),
+          costUsd: agentErr?.costUsd ?? null,
+          turns: agentErr?.turns ?? null,
+          durationMs: agentErr?.durationMs ?? deps.now() - started
         })
+        if (abortController.signal.aborted) {
+          return { error: { message: 'Generation was cancelled.', reason: 'cancelled' } }
+        }
         return toApiError(err)
+      } finally {
+        if (generation === abortController) generation = null
       }
+    },
+
+    async cancelGenerate() {
+      generation?.abort()
     },
 
     async ask({ stepId, question }): Promise<ChatMessage | ApiError> {
@@ -264,6 +301,7 @@ export function registerIpc(opts: {
   ipcMain.handle(IPC.pickRepo, () => handlers.pickRepo())
   ipcMain.handle(IPC.openTarget, (_e, req) => handlers.openTarget(req))
   ipcMain.handle(IPC.generate, (_e, target) => handlers.generate(target))
+  ipcMain.handle(IPC.cancelGenerate, () => handlers.cancelGenerate())
   ipcMain.handle(IPC.ask, (_e, req) => handlers.ask(req))
   ipcMain.handle(IPC.getFixture, () => handlers.getFixture())
   ipcMain.handle(IPC.readFile, (_e, req) => handlers.readFile(req))

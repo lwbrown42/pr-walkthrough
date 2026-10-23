@@ -30,6 +30,8 @@ export interface PreloadApi {
   pickRepo(): Promise<string | null>
   openTarget(req: OpenRequest): Promise<OpenResult | ApiError>
   generate(target: ReviewTarget): Promise<Walkthrough | ApiError>
+  /** Aborts the in-flight generate(); it then resolves with reason 'cancelled'. */
+  cancelGenerate(): Promise<void>
   onGenerateProgress(cb: (p: GenerateProgressEvent) => void): () => void
   ask(req: { stepId: string; question: string }): Promise<ChatMessage | ApiError>
   onChatText(cb: (chunk: string) => void): () => void
@@ -46,6 +48,7 @@ export const IPC = {
   pickRepo: 'api:pickRepo',
   openTarget: 'api:openTarget',
   generate: 'api:generate',
+  cancelGenerate: 'api:cancelGenerate',
   ask: 'api:ask',
   readFile: 'api:readFile',
   getFixture: 'api:getFixture',

@@ -83,3 +83,22 @@ describe('git diff reading', () => {
     await expect(readFileAt(dir, 'deadbeef', 'new.ts')).rejects.toThrow()
   })
 })
+
+describe('git diff ignores user diff config', () => {
+  it('parses paths even with noprefix and an external diff configured', async () => {
+    const { runGit } = await import('../../../src/main/git/run')
+    const repo = await makeTempRepo()
+    try {
+      await runGit(repo.dir, ['config', 'diff.noprefix', 'true'])
+      await runGit(repo.dir, ['config', 'diff.external', 'false'])
+      await runGit(repo.dir, ['config', 'color.diff', 'always'])
+      const base = await repo.commit({ 'x.ts': 'a\n' }, 'base')
+      const head = await repo.commit({ 'x.ts': 'b\n' }, 'head')
+      const out = await getChangedFiles(repo.dir, base, head)
+      expect(out.map((f) => [f.path, f.status, f.hunks.length])).toEqual([['x.ts', 'modified', 1]])
+    } finally {
+      const { rm } = await import('node:fs/promises')
+      await rm(repo.dir, { recursive: true, force: true })
+    }
+  })
+})

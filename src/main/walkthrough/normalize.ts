@@ -47,7 +47,16 @@ export function normalizeWalkthrough(
     steps.push({ ...step, segments })
   }
 
-  // 2. Drop parentIds that don't reference an earlier step.
+  // 2. Make step ids unique (the agent may repeat one): later repeats get -2, -3, ...
+  const used = new Set<string>()
+  steps = steps.map((step) => {
+    let id = step.id
+    for (let n = 2; used.has(id); n++) id = `${step.id}-${n}`
+    used.add(id)
+    return id === step.id ? step : { ...step, id }
+  })
+
+  // 3. Drop parentIds that don't reference an earlier step.
   const seen = new Set<string>()
   steps = steps.map((step) => {
     const { parentId, ...rest } = step
@@ -56,7 +65,7 @@ export function normalizeWalkthrough(
     return out
   })
 
-  // 3. Coverage fill.
+  // 4. Coverage fill.
   const allSegments = steps.flatMap((s) => s.segments)
   const missing: CodeSegment[] = []
   for (const file of files) {
@@ -79,7 +88,7 @@ export function normalizeWalkthrough(
     }
   }
 
-  // 4. Merge into a single trailing Everything else step.
+  // 5. Merge into a single trailing Everything else step.
   const existing = steps.filter((s) => s.title === EVERYTHING_ELSE_TITLE)
   const others = steps.filter((s) => s.title !== EVERYTHING_ELSE_TITLE)
   if (existing.length === 0 && missing.length === 0) return { ...raw, steps: others }

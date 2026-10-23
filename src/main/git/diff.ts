@@ -2,6 +2,9 @@ import parseDiff from 'parse-diff'
 import type { ChangedFile, FileStatus } from '../../shared/types'
 import { runGit } from './run'
 
+/** Git flags that make diff output independent of the user's git config. */
+export const PLAIN_DIFF_FLAGS = ['--no-ext-diff', '--no-color', '--src-prefix=a/', '--dst-prefix=b/']
+
 interface NumstatEntry {
   additions: number
   deletions: number
@@ -39,8 +42,8 @@ export async function getChangedFiles(
   headSha: string
 ): Promise<ChangedFile[]> {
   const [patch, numstat] = await Promise.all([
-    runGit(cwd, ['-c', 'core.quotepath=false', 'diff', '-M', '--no-color', baseSha, headSha]),
-    runGit(cwd, ['diff', '-M', '-z', '--numstat', baseSha, headSha])
+    runGit(cwd, ['-c', 'core.quotepath=false', 'diff', ...PLAIN_DIFF_FLAGS, '-M', baseSha, headSha]),
+    runGit(cwd, ['diff', ...PLAIN_DIFF_FLAGS, '-M', '-z', '--numstat', baseSha, headSha])
   ])
   const stats = parseNumstat(numstat)
 

@@ -162,7 +162,8 @@ describe('generateWalkthrough', () => {
     expect(prompt).toBe(buildWalkthroughPrompt(target, files, diffText))
     expect(options?.cwd).toBe('/tmp/wt')
     expect(options?.tools).toEqual(['Read', 'Grep', 'Glob'])
-    expect(options?.allowedTools).toEqual(['Read', 'Grep', 'Glob'])
+    expect(options?.allowedTools).toEqual(['Read', 'Grep', 'Glob', 'StructuredOutput'])
+    expect(options?.strictMcpConfig).toBe(true)
     expect(options?.settingSources).toEqual([])
     expect(options?.permissionMode).toBe('dontAsk')
     expect(options?.model).toBe('claude-opus-5-5')
@@ -213,6 +214,59 @@ describe('generateWalkthrough', () => {
 
   it('rejects failed when the stream ends without a result', async () => {
     await rejectsWith(run(fakeQuery([assistantToolUse('Read')]).fn), 'failed')
+  })
+
+  it('carries cost, turns and duration on a failed result', async () => {
+    const q = fakeQuery([
+      result({ subtype: 'error_max_turns', is_error: true, total_cost_usd: 1.5, num_turns: 60, duration_ms: 4200 })
+    ])
+    const err = (await run(q.fn).catch((e: unknown) => e)) as AgentRunError
+    expect(err.reason).toBe('max_turns')
+    expect(err).toMatchObject({ costUsd: 1.5, turns: 60, durationMs: 4200 })
+  })
+
+  it('passes the abortController and maps an aborted run to cancelled', async () => {
+    const ac = new AbortController()
+    const queryFn = ((params: { options?: Options }) =>
+      (async function* () {
+        expect(params.options?.abortController).toBe(ac)
+        ac.abort()
+        throw new Error('Operation aborted')
+      })()) as never
+    const p = generateWalkthrough({ target, files, diffText, lineCounts, settings, queryFn, abortController: ac })
+    await rejectsWith(p, 'cancelled')
+  })
+
+  it('reads line counts for context segments on unchanged files only', async () => {
+    const out: AgentWalkthrough = {
+      summary: 's',
+      steps: [
+        {
+          ...validOutput.steps[0],
+          segments: [
+            ...validOutput.steps[0].segments,
+            { kind: 'context', path: 'src/types.ts', startLine: 5, endLine: 50 },
+            { kind: 'context', path: 'missing.ts', startLine: 1, endLine: 2 }
+          ]
+        },
+        validOutput.steps[1]
+      ]
+    }
+    const readLineCount = vi.fn(async (p: string) => (p === 'src/types.ts' ? 12 : null))
+    const w = await generateWalkthrough({
+      target,
+      files,
+      diffText,
+      lineCounts,
+      settings,
+      readLineCount,
+      queryFn: fakeQuery([result({ structured_output: out })]).fn
+    })
+    expect(readLineCount.mock.calls.map((c) => c[0]).sort()).toEqual(['missing.ts', 'src/types.ts'])
+    expect(w.walkthrough.steps[0].segments).toEqual([
+      { kind: 'change', path: 'src/webhooks/retry.ts', startLine: 1, endLine: 10 },
+      { kind: 'context', path: 'src/types.ts', startLine: 5, endLine: 12 }
+    ])
   })
 
   it('wraps a thrown SDK error as failed', async () => {

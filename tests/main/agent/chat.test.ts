@@ -122,12 +122,52 @@ describe('askAboutStep', () => {
     expect(out).toEqual({ answer: 'Because it is.', sessionId: 's2', costUsd: 0.1 })
   })
 
-  it('falls back to assistant text blocks when no deltas arrive', async () => {
+  it('falls back to assistant text blocks when no deltas arrive, separating turns', async () => {
     const onText = vi.fn()
-    const q = fakeQuery([assistantText('One. ', 'm1'), assistantText('Two.', 'm2'), result()])
+    const q = fakeQuery([assistantText('One.', 'm1'), assistantText('Two.', 'm2'), result()])
     const out = await ask(q.fn, onText)
-    expect(onText.mock.calls.map((c) => c[0])).toEqual(['One. ', 'Two.'])
-    expect(out.answer).toBe('One. Two.')
+    expect(onText.mock.calls.map((c) => c[0])).toEqual(['One.', '\n\n', 'Two.'])
+    expect(out.answer).toBe('One.\n\nTwo.')
+  })
+
+  it('separates streamed turns around a tool use and answers with the result text', async () => {
+    const onText = vi.fn()
+    const start = (id: string): SDKMessage =>
+      ({
+        type: 'stream_event',
+        event: { type: 'message_start', message: { id } },
+        parent_tool_use_id: null,
+        uuid: 'u',
+        session_id: 's1'
+      }) as unknown as SDKMessage
+    const toolTurn = {
+      type: 'assistant',
+      message: {
+        id: 'm1',
+        content: [
+          { type: 'text', text: 'Let me check.' },
+          { type: 'tool_use', id: 'tu1', name: 'Read', input: {} }
+        ]
+      },
+      parent_tool_use_id: null,
+      uuid: 'u',
+      session_id: 's1'
+    } as unknown as SDKMessage
+    const q = fakeQuery([
+      start('m1'),
+      delta('Let me check.'),
+      toolTurn,
+      start('m2'),
+      delta('It retries '),
+      delta('three times.'),
+      assistantText('It retries three times.', 'm2'),
+      result({ result: 'It retries three times.' })
+    ])
+    const out = await ask(q.fn, onText)
+    expect(onText.mock.calls.map((c) => c[0]).join('')).toBe(
+      'Let me check.\n\nIt retries three times.'
+    )
+    expect(out.answer).toBe('It retries three times.')
   })
 
   it('maps result errors and SDK throws to AgentRunError', async () => {

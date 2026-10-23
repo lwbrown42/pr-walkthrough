@@ -15,6 +15,7 @@ const api: PreloadApi = {
   pickRepo: () => ipcRenderer.invoke(IPC.pickRepo),
   openTarget: (req) => ipcRenderer.invoke(IPC.openTarget, req),
   generate: (target) => ipcRenderer.invoke(IPC.generate, target),
+  cancelGenerate: () => ipcRenderer.invoke(IPC.cancelGenerate),
   onGenerateProgress: (cb) => subscribe(IPC.generateProgress, cb),
   ask: (req) => ipcRenderer.invoke(IPC.ask, req),
   onChatText: (cb) => subscribe(IPC.chatText, cb),

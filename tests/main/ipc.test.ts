@@ -109,7 +109,16 @@ describe('generate', () => {
     await h.openTarget(local)
     const res = await h.generate(target)
     expect(res).toMatchObject({ sessionId: 'sess1', changedLines: 10, summary: 's' })
-    expect(deps.runGit).toHaveBeenCalledWith('/wt', ['diff', '-M', 'base', 'head'])
+    expect(deps.runGit).toHaveBeenCalledWith('/wt', [
+      'diff',
+      '--no-ext-diff',
+      '--no-color',
+      '--src-prefix=a/',
+      '--dst-prefix=b/',
+      '-M',
+      'base',
+      'head'
+    ])
     const args = vi.mocked(deps.generateWalkthrough).mock.calls[0][0]
     expect(args.diffText).toBe('DIFF')
     expect(args.lineCounts).toEqual({ head: { 'new.ts': 3 }, base: { 'old.ts': 3, 'gone.ts': 3 } })
@@ -147,6 +156,54 @@ describe('generate', () => {
       turns: null,
       durationMs: 10
     })
+  })
+
+  it('logs the cost, turns and duration a failed run reports', async () => {
+    const { h, log } = setup({
+      generateWalkthrough: vi.fn(async () => {
+        throw new AgentRunError('max_budget', 'over', {
+          usage: { costUsd: 3.1, turns: 22, durationMs: 5000 }
+        })
+      })
+    })
+    await h.generate(target)
+    expect(log[0]).toMatchObject({ outcome: 'max_budget', costUsd: 3.1, turns: 22, durationMs: 5000 })
+  })
+
+  it('skips a file whose contents cannot be read instead of failing', async () => {
+    const files = [file({ path: 'ok.ts' }), file({ path: 'sub' })]
+    const { h, deps } = setup(
+      {
+        readFileAt: vi.fn(async (_c: string, _s: string, p: string) => {
+          if (p === 'sub') throw new Error('fatal: bad object')
+          return 'x\n'
+        })
+      },
+      files
+    )
+    await h.openTarget(local)
+    expect(await h.generate(target)).not.toHaveProperty('error')
+    const args = vi.mocked(deps.generateWalkthrough).mock.calls[0][0]
+    expect(args.lineCounts).toEqual({ head: { 'ok.ts': 1 }, base: { 'ok.ts': 1 } })
+  })
+
+  it('cancelGenerate aborts the run, returns a cancelled error, and logs cancelled', async () => {
+    const { h, log } = setup({
+      generateWalkthrough: vi.fn(
+        (args) =>
+          new Promise((_resolve, reject) => {
+            args.abortController!.signal.addEventListener('abort', () =>
+              reject(new AgentRunError('cancelled', 'Generation was cancelled.'))
+            )
+          })
+      )
+    })
+    await h.openTarget(local)
+    const p = h.generate(target)
+    await new Promise((r) => setTimeout(r, 0))
+    await h.cancelGenerate()
+    expect(await p).toEqual({ error: { message: 'Generation was cancelled.', reason: 'cancelled' } })
+    expect(log[0].outcome).toBe('cancelled')
   })
 
   it('logs "failed" for non-agent errors', async () => {
@@ -194,5 +251,51 @@ describe('getSettings / readFile', () => {
     await h.openTarget(local)
     await h.readFile({ sha: 'head', path: 'a.ts' })
     expect(deps.readFileAt).toHaveBeenCalledWith('/wt', 'head', 'a.ts')
+  })
+})
+
+describe('generate with the real walkthrough pipeline', () => {
+  it('keeps a context segment on a file the PR did not change', async () => {
+    const { generateWalkthrough } = await import('../../src/main/agent/generate')
+    const output = {
+      summary: 's',
+      steps: [
+        {
+          id: 's1',
+          title: 'T',
+          whyNext: '',
+          explanation: 'E',
+          segments: [
+            { kind: 'change', path: 'a.ts', startLine: 1, endLine: 1 },
+            { kind: 'context', path: 'lib/util.ts', startLine: 2, endLine: 9 }
+          ]
+        }
+      ]
+    }
+    const queryFn = (() =>
+      (async function* () {
+        yield {
+          type: 'result',
+          subtype: 'success',
+          is_error: false,
+          session_id: 'sess1',
+          total_cost_usd: 0.1,
+          num_turns: 1,
+          result: '',
+          structured_output: output
+        }
+      })()) as never
+    const readFileAt = vi.fn(async (_cwd: string, _sha: string, path: string) =>
+      path === 'lib/util.ts' ? 'u1\nu2\nu3\nu4\n' : 'l1\nl2\nl3\n'
+    )
+    const { h } = setup({
+      readFileAt,
+      generateWalkthrough: (args) => generateWalkthrough({ ...args, queryFn })
+    })
+    const res = await h.generate(target)
+    expect(res).not.toHaveProperty('error')
+    const segs = (res as { steps: Step[] }).steps[0].segments
+    expect(segs).toContainEqual({ kind: 'context', path: 'lib/util.ts', startLine: 2, endLine: 4 })
+    expect(readFileAt).toHaveBeenCalledWith('/wt', 'head', 'lib/util.ts')
   })
 })
