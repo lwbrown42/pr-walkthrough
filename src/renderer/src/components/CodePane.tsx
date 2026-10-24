@@ -5,7 +5,7 @@ import type { ChangedFile, ReviewTarget } from '../../../shared/types'
 import type { CodeSegment, Step } from '../../../shared/walkthrough'
 import '../monacoSetup'
 import { languageFor } from '../monacoSetup'
-import { describeSegment } from './segmentView'
+import { describeSegment, segmentWindow, sliceLines, type LineRange } from './segmentView'
 
 interface Props {
   step: Step
@@ -15,7 +15,10 @@ interface Props {
 }
 
 const LINE_HEIGHT = 19
-const MAX_LINES = 24
+/** Taller segments scroll inside their editor. */
+const MAX_HEIGHT = 40 * LINE_HEIGHT
+/** Lines added per "Show more" click. */
+const EXPAND_STEP = 20
 
 type Loader = (sha: string, path: string) => Promise<string | null>
 
@@ -96,16 +99,37 @@ function SegmentView({
     }
   }, [view.editor, view.sha, status, seg.path, basePath, target.headSha, target.baseSha, load])
 
-  // Scroll so startLine is near the top, and mark the segment's range.
+  const [extra, setExtra] = useState({ above: 0, below: 0 })
+  const [height, setHeight] = useState(8 * LINE_HEIGHT)
+
+  const loaded = typeof text === 'object' && text !== null ? text : null
+  const win = loaded
+    ? segmentWindow(
+        seg,
+        file,
+        view,
+        { head: countLines(loaded.modified), base: countLines(loaded.original) },
+        extra
+      )
+    : null
+  // In plain mode for a deleted file the base text is in `modified` (see the loader above).
+  const plainRange: LineRange | undefined = win ? (win.head ?? win.base) : undefined
+  const headRange = win?.head ?? { start: 1, end: 0 }
+  const baseRange = win?.base ?? { start: 1, end: 0 }
+  // The editor that holds the segment's own lines, and where its slice starts.
+  const ownStart =
+    view.editor === 'diff' && status === 'deleted' ? baseRange.start : (plainRange?.start ?? 1)
+
+  // Mark the segment's own lines (shifted into the slice).
   useEffect(() => {
     const ed = editorRef.current
-    if (!ed || typeof text !== 'object' || text === null) return
+    if (!ed || !loaded) return
     const coll = ed.createDecorationsCollection([
       {
         range: {
-          startLineNumber: seg.startLine,
+          startLineNumber: seg.startLine - ownStart + 1,
           startColumn: 1,
-          endLineNumber: seg.endLine,
+          endLineNumber: seg.endLine - ownStart + 1,
           endColumn: 1
         },
         options: {
@@ -115,15 +139,19 @@ function SegmentView({
         }
       }
     ])
-    ed.revealLineNearTop(seg.startLine)
     return () => coll.clear()
-  }, [text, ready, seg.startLine, seg.endLine])
+  }, [loaded, ready, seg.startLine, seg.endLine, ownStart])
 
-  const lines =
-    typeof text === 'object' && text
-      ? Math.max(countLines(text.original), countLines(text.modified))
-      : 8
-  const height = Math.min(lines, MAX_LINES) * LINE_HEIGHT + 4
+  // Size the editor to its content (capped), so a short slice isn't padded with empty space.
+  const fitHeight = (ed: Monaco.editor.ICodeEditor): void => {
+    const update = (): void => setHeight(Math.min(ed.getContentHeight(), MAX_HEIGHT) + 2)
+    update()
+    ed.onDidContentSizeChange(update)
+  }
+
+  /** Line numbers that match the real file, not the slice. */
+  const numbersFrom = (start: number) => (n: number) => String(n + start - 1)
+
   const theme = dark ? 'vs-dark' : 'vs'
   const language = languageFor(seg.path)
 
@@ -140,11 +168,22 @@ function SegmentView({
         height={height}
         theme={theme}
         language={language}
-        original={text.original}
-        modified={text.modified}
-        options={{ ...OPTIONS, renderSideBySide: false, originalEditable: false }}
+        original={sliceLines(text.original, baseRange)}
+        modified={sliceLines(text.modified, headRange)}
+        options={{
+          ...OPTIONS,
+          renderSideBySide: false,
+          originalEditable: false,
+          // Long unchanged runs inside the window fold into "N hidden lines" bars.
+          hideUnchangedRegions: { enabled: true, contextLineCount: 3, minimumLineCount: 6 }
+        }}
         onMount={(ed) => {
-          editorRef.current = status === 'deleted' ? ed.getOriginalEditor() : ed.getModifiedEditor()
+          const original = ed.getOriginalEditor()
+          const modified = ed.getModifiedEditor()
+          original.updateOptions({ lineNumbers: numbersFrom(baseRange.start) })
+          modified.updateOptions({ lineNumbers: numbersFrom(headRange.start) })
+          editorRef.current = status === 'deleted' ? original : modified
+          fitHeight(modified)
           setReady((n) => n + 1)
         }}
       />
@@ -155,15 +194,19 @@ function SegmentView({
         height={height}
         theme={theme}
         language={language}
-        value={text.modified}
-        options={OPTIONS}
+        value={plainRange ? sliceLines(text.modified, plainRange) : text.modified}
+        options={{ ...OPTIONS, lineNumbers: numbersFrom(plainRange?.start ?? 1) }}
         onMount={(ed) => {
           editorRef.current = ed
+          fitHeight(ed)
           setReady((n) => n + 1)
         }}
       />
     )
   }
+
+  const expand = (side: 'above' | 'below'): void =>
+    setExtra((e) => ({ ...e, [side]: e[side] + EXPAND_STEP }))
 
   return (
     <section className={`segment segment-${seg.kind}`} data-editor={view.editor}>
@@ -175,7 +218,17 @@ function SegmentView({
         </span>
         {seg.note && <p className="segment-note">{seg.note}</p>}
       </header>
+      {win?.moreAbove && (
+        <button type="button" className="segment-expand" onClick={() => expand('above')}>
+          ↑ Show {EXPAND_STEP} more lines
+        </button>
+      )}
       {body}
+      {win?.moreBelow && (
+        <button type="button" className="segment-expand" onClick={() => expand('below')}>
+          ↓ Show {EXPAND_STEP} more lines
+        </button>
+      )}
     </section>
   )
 }

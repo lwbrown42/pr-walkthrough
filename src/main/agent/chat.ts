@@ -8,7 +8,8 @@ export interface AskArgs {
   sessionId: string
   worktreePath: string
   step: Step
-  stepIndex: number
+  /** The label the reviewer sees, e.g. '2' or '1a'. */
+  stepLabel: string
   question: string
   settings: Settings
   onText?: (chunk: string) => void
@@ -31,7 +32,7 @@ export async function askAboutStep(args: AskArgs): Promise<AskResult> {
     sessionId,
     worktreePath,
     step,
-    stepIndex,
+    stepLabel,
     question,
     settings,
     onText,
@@ -57,7 +58,7 @@ export async function askAboutStep(args: AskArgs): Promise<AskResult> {
   let final: SDKResultMessage | undefined
   try {
     for await (const msg of queryFn({
-      prompt: buildChatPrompt(step, stepIndex, question),
+      prompt: buildChatPrompt(step, stepLabel, question),
       options
     })) {
       // Subagent output is not part of the answer.

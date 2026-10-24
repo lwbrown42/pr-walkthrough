@@ -96,7 +96,7 @@ export function normalizeWalkthrough(
   // 5. Merge into a single trailing Everything else step.
   const existing = steps.filter((s) => s.title === EVERYTHING_ELSE_TITLE)
   const others = steps.filter((s) => s.title !== EVERYTHING_ELSE_TITLE)
-  if (existing.length === 0 && missing.length === 0) return { ...raw, steps: others }
+  if (existing.length === 0 && missing.length === 0) return { ...raw, steps: nestDetours(others) }
   const base: Step = existing[0] ?? {
     id: EVERYTHING_ELSE_ID,
     title: EVERYTHING_ELSE_TITLE,
@@ -108,8 +108,35 @@ export function normalizeWalkthrough(
     ...base,
     segments: [...existing.flatMap((s) => s.segments), ...missing]
   }
+  // Everything else is always a main step.
+  delete merged.parentId
   // A leftover step that is empty carries nothing worth showing.
   if (merged.segments.length === 0 && merged.explanation.trim() === '')
-    return { ...raw, steps: others }
-  return { ...raw, steps: [...others, merged] }
+    return { ...raw, steps: nestDetours(others) }
+  return { ...raw, steps: [...nestDetours(others), merged] }
+}
+
+/**
+ * Detours are one level deep and sit right after their main step: a detour of a detour is
+ * re-parented to the main step, and a detour anywhere else becomes a main step itself.
+ */
+function nestDetours(steps: Step[]): Step[] {
+  const parentOf = new Map(steps.map((s) => [s.id, s.parentId]))
+  const rootOf = (id: string): string => {
+    const seen = new Set<string>()
+    let cur = id
+    for (let p = parentOf.get(cur); p !== undefined && !seen.has(p); p = parentOf.get(cur)) {
+      seen.add(cur)
+      cur = p
+    }
+    return cur
+  }
+  let mainId: string | undefined
+  return steps.map((step) => {
+    const { parentId, ...rest } = step
+    const root = parentId === undefined ? undefined : rootOf(step.id)
+    if (root !== undefined && root === mainId) return { ...rest, parentId: root }
+    mainId = step.id
+    return rest
+  })
 }

@@ -216,8 +216,26 @@ button.link {
   padding: 6px 12px;
   cursor: pointer;
 }
-.step-item.indented {
+.step-item {
+  display: flex;
+  gap: 6px;
+  overflow-wrap: anywhere;
+}
+.step-item.detour {
   padding-left: 28px;
+  position: relative;
+}
+/* Connector showing a detour hangs off the main step above it. */
+.step-item.detour::before {
+  content: '';
+  position: absolute;
+  left: 18px;
+  top: 0;
+  bottom: 0;
+  border-left: 2px solid var(--border);
+}
+.step-num {
+  flex: none;
 }
 .step-item.current {
   background: var(--accent);
@@ -252,6 +270,21 @@ button.link {
 }
 .explanation p {
   margin: 0 0 8px;
+}
+.detour-tag {
+  font-style: italic;
+}
+.explanation-text p {
+  margin: 0 0 10px;
+}
+.explanation code,
+.chat-message code {
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: 0.9em;
+  background: var(--panel);
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  padding: 0 4px;
 }
 .explanation-text {
   /* Keep the agent's paragraph breaks. */
@@ -383,4 +416,18 @@ button.link {
 .usage-table .num {
   text-align: right;
   font-variant-numeric: tabular-nums;
+}
+.segment-expand {
+  display: block;
+  width: 100%;
+  background: var(--panel);
+  color: var(--muted);
+  border: 0;
+  border-radius: 0;
+  font-size: 12px;
+  padding: 2px 8px;
+  text-align: left;
+}
+.segment-expand:hover {
+  color: var(--fg);
 }

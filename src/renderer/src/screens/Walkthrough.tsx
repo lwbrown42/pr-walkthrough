@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react'
 import type { ChatMessage } from '../../../shared/types'
+import { labelSteps } from '../../../shared/stepLabels'
 import type { Walkthrough as WalkthroughData } from '../../../shared/walkthrough'
 import ChatPanel from '../components/ChatPanel'
 import CodePane from '../components/CodePane'
@@ -38,6 +39,7 @@ export default function Walkthrough({ walkthrough, onExit }: Props): React.JSX.E
   }, [steps.length])
 
   const step = steps[index]
+  const { labels, mainCount } = labelSteps(steps)
   if (!step) return <div className="screen">No steps.</div>
 
   return (
@@ -69,7 +71,12 @@ export default function Walkthrough({ walkthrough, onExit }: Props): React.JSX.E
           <CodePane step={step} files={files} target={target} mode={mode} />
         </main>
         <aside className="right-column">
-          <ExplanationPanel step={step} index={index} total={steps.length} />
+          <ExplanationPanel
+            step={step}
+            label={labels[index]}
+            mainCount={mainCount}
+            detourFrom={labels[index].match(/^(\d+)[a-z]+$/)?.[1]}
+          />
           <ChatPanel
             stepId={step.id}
             steps={steps}

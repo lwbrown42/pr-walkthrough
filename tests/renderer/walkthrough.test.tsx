@@ -51,43 +51,64 @@ describe('Walkthrough screen', () => {
     expect(screen.getByText('My PR')).toBeTruthy()
   })
 
-  it('clicking step 3 shows Step 3 of 4 and its explanation', async () => {
+  // Steps s1, s2 (detour from s1), s3, s4 → labels 1, 1a, 2, 3.
+  const header = (text: string): HTMLElement => screen.getByText(new RegExp(`^${text}`))
+
+  it('clicking a step shows its label of the main-step count and its explanation', async () => {
     setup()
     await userEvent.click(screen.getByRole('button', { name: /Title 3/ }))
-    expect(screen.getByText('Step 3 of 4')).toBeTruthy()
+    expect(header('Step 2 of 3')).toBeTruthy()
     expect(screen.getByText('Explain 3')).toBeTruthy()
     expect(screen.getByText('Because 3')).toBeTruthy()
   })
 
   it('omits whyNext when empty', () => {
     setup()
-    expect(screen.getByText('Step 1 of 4')).toBeTruthy()
+    expect(header('Step 1 of 3')).toBeTruthy()
     expect(document.querySelector('.why-next')).toBeNull()
   })
 
-  it('marks child steps as indented', () => {
+  it('labels a detour 1a, marks it in the list, and names its main step', async () => {
     setup()
-    expect(screen.getByRole('button', { name: /Title 2/ }).getAttribute('data-indented')).toBe(
-      'true'
-    )
-    expect(screen.getByRole('button', { name: /Title 3/ }).getAttribute('data-indented')).toBe(
-      'false'
-    )
+    const detour = screen.getByRole('button', { name: /Title 2/ })
+    expect(detour.textContent).toContain('1a.')
+    expect(detour.getAttribute('data-detour')).toBe('true')
+    expect(screen.getByRole('button', { name: /Title 3/ }).getAttribute('data-detour')).toBeNull()
+    await userEvent.click(detour)
+    expect(header('Step 1a of 3').textContent).toContain('Detour from step 1')
   })
 
   it('j/k and arrows move between steps, clamped at the ends', async () => {
     setup()
     const user = userEvent.setup()
     await user.keyboard('k')
-    expect(screen.getByText('Step 1 of 4')).toBeTruthy()
+    expect(header('Step 1 of 3')).toBeTruthy()
     await user.keyboard('j')
-    expect(screen.getByText('Step 2 of 4')).toBeTruthy()
+    expect(header('Step 1a of 3')).toBeTruthy()
     await user.keyboard('{ArrowDown}{ArrowDown}{ArrowDown}')
-    expect(screen.getByText('Step 4 of 4')).toBeTruthy()
+    expect(header('Step 3 of 3')).toBeTruthy()
     await user.keyboard('{ArrowUp}')
-    expect(screen.getByText('Step 3 of 4')).toBeTruthy()
+    expect(header('Step 2 of 3')).toBeTruthy()
     await user.keyboard('k')
-    expect(screen.getByText('Step 2 of 4')).toBeTruthy()
+    expect(header('Step 1a of 3')).toBeTruthy()
+  })
+
+  it('splits the explanation into paragraphs and renders backticks as code', () => {
+    render(
+      <Walkthrough
+        walkthrough={{
+          ...wt,
+          steps: [step(1, { explanation: 'Calls `merge` first.\n\nThen `<|>` wins.' })]
+        }}
+        onExit={vi.fn()}
+      />
+    )
+    const paras = document.querySelectorAll('.explanation-text p')
+    expect(paras).toHaveLength(2)
+    expect(
+      [...document.querySelectorAll('.explanation-text code')].map((c) => c.textContent)
+    ).toEqual(['merge', '<|>'])
+    expect(document.querySelector('.explanation-text')?.textContent).not.toContain('`')
   })
 
   it('ignores keys typed in a text input', async () => {
@@ -95,7 +116,7 @@ describe('Walkthrough screen', () => {
     const user = userEvent.setup()
     await user.click(screen.getByLabelText('chat input'))
     await user.keyboard('jj')
-    expect(screen.getByText('Step 1 of 4')).toBeTruthy()
+    expect(header('Step 1 of 3')).toBeTruthy()
   })
 
   it('toggle switches mode passed to CodePane', async () => {

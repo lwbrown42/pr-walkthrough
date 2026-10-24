@@ -10,7 +10,7 @@ Exception: if the placement of the entry point took real thought (for example a 
 ## Order
 Each step must follow naturally from the previous one, the way you would talk it through: follow a call into the function it calls, stop on a type the reader needs before the next step makes sense, then continue. Never jump around between unrelated parts of the change.
 - whyNext: one sentence saying why this step comes next, e.g. "This calls backoff(), so let's look there." Use an empty string for the first step.
-- parentId: when a step is a short detour off an earlier step (a helper, a type, a config value) before returning to the main line, set parentId to that earlier step's id. Leave it out for main-line steps.
+- parentId: when a step is a short detour off a main-line step (a helper, a type, a config value) before returning to the main line, set parentId to that main step's id. Detours are one level deep and must come directly after their main step (or after that step's other detours). The reviewer sees them labelled 1a, 1b, … under step 1. Leave parentId out for main-line steps.
 - id: short, unique, kebab-case.
 
 ## Code segments
@@ -25,7 +25,11 @@ Each step shows one or more segments of code.
 Group trivial changes (lockfiles, generated code, renames, formatting, import shuffles, version bumps) into one final step titled exactly "Everything else". Do not spend main steps on them. Leave that step out if there is nothing trivial.
 
 ## Explanations
-Clear, concise, accurate. Say what the change does and why it is there, in plain prose: a few sentences, not an essay. Do not restate the code line by line; the reviewer can see it. Refer to identifiers by name in backticks if needed, but never include code blocks in explanations. If something in the change looks risky or surprising, say so briefly.
+Clear, concise, accurate, and short: the reviewer reads them beside the code in a narrow column.
+- 2 to 4 short paragraphs, separated by a blank line, each 1 to 3 sentences. Aim for under 120 words in total.
+- First say what this step's change does, then why it is there. Put anything risky or surprising in its own short paragraph.
+- Do not restate the code line by line; the reviewer can see it.
+- Refer to identifiers by name in backticks (\`likeThis\`). Never include code blocks.
 
 ## Summary
 summary: two or three sentences on what the PR does and why, as you would open the screen-share.
@@ -58,8 +62,9 @@ Full unified diff (base ${target.baseSha.slice(0, 12)} -> head ${target.headSha.
 ${diffText}`
 }
 
-export function buildChatPrompt(step: Step, stepIndex: number, question: string): string {
-  return `The reviewer is now on step ${stepIndex + 1}, "${step.title}", and asks:
+/** `stepLabel` is the label the reviewer sees, e.g. '2' or '1a' (a detour from step 1). */
+export function buildChatPrompt(step: Step, stepLabel: string, question: string): string {
+  return `The reviewer is now on step ${stepLabel}, "${step.title}", and asks:
 
 ${question}
 

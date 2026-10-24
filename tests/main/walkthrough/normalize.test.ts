@@ -170,3 +170,35 @@ describe('schemas', () => {
     expect(s.properties.steps).toBeDefined()
   })
 })
+
+describe('detour nesting', () => {
+  const parents = (out: AgentWalkthrough): (string | undefined)[] =>
+    out.steps.map((s) => s.parentId)
+
+  it('keeps detours that directly follow their main step', () => {
+    const out = run(
+      [step('a'), step('a1', { parentId: 'a' }), step('a2', { parentId: 'a' }), step('b')],
+      []
+    )
+    expect(parents(out)).toEqual([undefined, 'a', 'a', undefined])
+  })
+
+  it('folds a detour of a detour under the main step', () => {
+    const out = run([step('a'), step('a1', { parentId: 'a' }), step('a1x', { parentId: 'a1' })], [])
+    expect(parents(out)).toEqual([undefined, 'a', 'a'])
+  })
+
+  it('turns a detour that is not next to its main step into a main step', () => {
+    const out = run([step('a'), step('b'), step('late', { parentId: 'a' })], [])
+    expect(parents(out)).toEqual([undefined, undefined, undefined])
+  })
+
+  it('never nests the Everything else step', () => {
+    const out = run(
+      [step('a'), step('ee', { title: 'Everything else', parentId: 'a', segments: [] })],
+      []
+    )
+    expect(out.steps.at(-1)).toMatchObject({ title: 'Everything else' })
+    expect(out.steps.at(-1)?.parentId).toBeUndefined()
+  })
+})

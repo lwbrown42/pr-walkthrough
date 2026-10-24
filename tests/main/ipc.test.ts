@@ -243,7 +243,7 @@ describe('ask', () => {
     expect(msg).toMatchObject({ stepId: 's1', role: 'assistant', text: 'yes' })
     await h.ask({ stepId: 's1', question: 'again?' })
     const calls = vi.mocked(deps.askAboutStep).mock.calls
-    expect(calls[0][0]).toMatchObject({ sessionId: 'sess1', stepIndex: 0, worktreePath: '/wt' })
+    expect(calls[0][0]).toMatchObject({ sessionId: 'sess1', stepLabel: '1', worktreePath: '/wt' })
     expect(calls[1][0].sessionId).toBe('sess2')
   })
 

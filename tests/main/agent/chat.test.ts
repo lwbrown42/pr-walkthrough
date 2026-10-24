@@ -73,7 +73,7 @@ const ask = (
     sessionId: 's1',
     worktreePath: '/tmp/wt',
     step,
-    stepIndex: 2,
+    stepLabel: '1a',
     question: 'Why here?',
     settings: { ...settings, ...over },
     onText,
@@ -90,9 +90,9 @@ const rejectsWith = async (p: Promise<unknown>, reason: AgentRunError['reason'])
 }
 
 describe('buildChatPrompt', () => {
-  it('names the step number and title and carries the question', () => {
-    const p = buildChatPrompt(step, 2, 'Why here?')
-    expect(p).toContain('step 3')
+  it('names the step label and title and carries the question', () => {
+    const p = buildChatPrompt(step, '1a', 'Why here?')
+    expect(p).toContain('step 1a')
     expect(p).toContain('Job carries the policy')
     expect(p).toContain('Why here?')
     expect(p).toContain('path:line')
@@ -108,7 +108,7 @@ describe('askAboutStep', () => {
     expect(o).not.toHaveProperty('outputFormat')
     expect(o.tools).toEqual(['Read', 'Grep', 'Glob'])
     expect(o.cwd).toBe('/tmp/wt')
-    expect(q.calls[0].prompt).toBe(buildChatPrompt(step, 2, 'Why here?'))
+    expect(q.calls[0].prompt).toBe(buildChatPrompt(step, '1a', 'Why here?'))
   })
 
   it('streams text deltas in order, ignores subagent output, and returns answer, session and cost', async () => {

@@ -316,7 +316,10 @@ describe('WALKTHROUGH_SYSTEM_PROMPT', () => {
       'Read',
       'Grep',
       'Glob',
-      '1-based'
+      '1-based',
+      '2 to 4 short paragraphs',
+      'separated by a blank line',
+      'Detours are one level deep'
     ])
       expect(WALKTHROUGH_SYSTEM_PROMPT).toContain(s)
   })

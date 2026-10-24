@@ -9,6 +9,7 @@ import {
   type PreloadApi
 } from '../shared/api'
 import type { ChangedFile, ChatMessage, ReviewTarget, RunLogEntry } from '../shared/types'
+import { labelSteps } from '../shared/stepLabels'
 import type { Walkthrough } from '../shared/walkthrough'
 import { askAboutStep } from './agent/chat'
 import { generateWalkthrough } from './agent/generate'
@@ -264,7 +265,7 @@ export function createHandlers(deps: HandlerDeps): Handlers {
           sessionId: walkthrough.sessionId,
           worktreePath: walkthrough.target.worktreePath,
           step: walkthrough.steps[stepIndex],
-          stepIndex,
+          stepLabel: labelSteps(walkthrough.steps).labels[stepIndex],
           question,
           settings: deps.settings.get(),
           onText: (chunk) => deps.send(IPC.chatText, chunk)
