@@ -1,6 +1,7 @@
 import { cleanup, render, screen } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
-import { afterEach, describe, expect, it, vi } from 'vitest'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
+import type { PreloadApi } from '../../src/shared/api'
 import Walkthrough from '../../src/renderer/src/screens/Walkthrough'
 import type { Walkthrough as W } from '../../src/shared/walkthrough'
 
@@ -12,6 +13,20 @@ vi.mock('../../src/renderer/src/components/ChatPanel', () => ({
 }))
 
 afterEach(cleanup)
+
+const reviewUsage = {
+  runs: 2,
+  costUsd: 1.32,
+  tokens: { input: 1, output: 2, cacheRead: 3, cacheCreation: 4 }
+}
+let api: { getReviewUsage: ReturnType<typeof vi.fn>; getRunLog: ReturnType<typeof vi.fn> }
+beforeEach(() => {
+  api = {
+    getReviewUsage: vi.fn().mockResolvedValue(reviewUsage),
+    getRunLog: vi.fn().mockResolvedValue([])
+  }
+  window.api = api as unknown as PreloadApi
+})
 
 const step = (n: number, extra: object = {}): W['steps'][number] => ({
   id: `s${n}`,
@@ -132,5 +147,34 @@ describe('Walkthrough screen', () => {
     const onExit = setup()
     await userEvent.click(screen.getByRole('button', { name: 'New review' }))
     expect(onExit).toHaveBeenCalled()
+  })
+})
+
+describe('usage during a review', () => {
+  it('shows what this review has cost so far in the top bar', async () => {
+    setup()
+    expect(await screen.findByText('This review: $1.32')).toBeTruthy()
+  })
+
+  it('opens Usage over the walkthrough and closes it with Esc, keeping the current step', async () => {
+    setup()
+    const user = userEvent.setup()
+    await user.click(screen.getByRole('button', { name: /Title 3/ }))
+    await user.click(screen.getByRole('button', { name: 'Usage' }))
+    const dialog = await screen.findByRole('dialog', { name: 'Usage' })
+    expect(dialog).toBeTruthy()
+    // Step keys don't move the walkthrough while Usage is open.
+    await user.keyboard('j')
+    await user.keyboard('{Escape}')
+    expect(screen.queryByRole('dialog')).toBeNull()
+    expect(screen.getByText(/^Step 2 of 3/)).toBeTruthy()
+  })
+
+  it('closes Usage with its Close button', async () => {
+    setup()
+    const user = userEvent.setup()
+    await user.click(screen.getByRole('button', { name: 'Usage' }))
+    await user.click(await screen.findByRole('button', { name: 'Close' }))
+    expect(screen.queryByRole('dialog')).toBeNull()
   })
 })

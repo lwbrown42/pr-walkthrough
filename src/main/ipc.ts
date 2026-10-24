@@ -10,6 +10,7 @@ import {
 } from '../shared/api'
 import type { ChangedFile, ChatMessage, ReviewTarget, RunLogEntry } from '../shared/types'
 import { labelSteps } from '../shared/stepLabels'
+import { summarizeRuns } from '../shared/usage'
 import type { Walkthrough } from '../shared/walkthrough'
 import { askAboutStep } from './agent/chat'
 import { generateWalkthrough } from './agent/generate'
@@ -113,6 +114,12 @@ export function createHandlers(deps: HandlerDeps): Handlers {
   }
 
   let generation: AbortController | null = null
+  /** Cost of the review in progress: its generation plus every chat question since. */
+  let reviewRuns: RunLogEntry[] = []
+  const logRun = (e: RunLogEntry): void => {
+    deps.settings.appendRunLog(e)
+    reviewRuns.push(e)
+  }
 
   return {
     async getSettings() {
@@ -159,13 +166,14 @@ export function createHandlers(deps: HandlerDeps): Handlers {
     async generate(target): Promise<Walkthrough | ApiError> {
       const started = deps.now()
       const entry = (partial: RunOutcome): void =>
-        deps.settings.appendRunLog({
+        logRun({
           at: new Date(started).toISOString(),
           kind: 'generate',
           prTitle: target.title,
           changedLines: current?.changedLines ?? 0,
           ...partial
         })
+      reviewRuns = []
       const abortController = new AbortController()
       generation?.abort()
       generation = abortController
@@ -249,7 +257,7 @@ export function createHandlers(deps: HandlerDeps): Handlers {
       const asked = walkthrough
       const entry = (partial: RunOutcome): void => {
         if (!asked) return
-        deps.settings.appendRunLog({
+        logRun({
           at: new Date(started).toISOString(),
           kind: 'chat',
           prTitle: asked.target.title,
@@ -297,6 +305,10 @@ export function createHandlers(deps: HandlerDeps): Handlers {
 
     async getRunLog() {
       return deps.settings.readRunLog()
+    },
+
+    async getReviewUsage() {
+      return summarizeRuns(reviewRuns).allTime
     },
 
     async getFixture() {
@@ -352,4 +364,5 @@ export function registerIpc(opts: {
   ipcMain.handle(IPC.getFixture, () => handlers.getFixture())
   ipcMain.handle(IPC.readFile, (_e, req) => handlers.readFile(req))
   ipcMain.handle(IPC.getRunLog, () => handlers.getRunLog())
+  ipcMain.handle(IPC.getReviewUsage, () => handlers.getReviewUsage())
 }

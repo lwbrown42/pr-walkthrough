@@ -1,4 +1,5 @@
 import type { ChangedFile, ChatMessage, ReviewTarget, RunLogEntry, Settings } from './types'
+import type { UsageTotals } from './usage'
 import type { Walkthrough } from './walkthrough'
 
 export type OpenRequest =
@@ -40,6 +41,8 @@ export interface PreloadApi {
   readFile(req: { sha: string; path: string }): Promise<string | null>
   /** Every logged generation and chat question, oldest first. */
   getRunLog(): Promise<RunLogEntry[]>
+  /** Totals for the review in progress (its generation plus chat questions since). */
+  getReviewUsage(): Promise<UsageTotals>
 }
 
 export const CHANGED_LINES_LIMIT = 1300
@@ -55,6 +58,7 @@ export const IPC = {
   readFile: 'api:readFile',
   getFixture: 'api:getFixture',
   getRunLog: 'api:getRunLog',
+  getReviewUsage: 'api:getReviewUsage',
   generateProgress: 'api:generateProgress',
   chatText: 'api:chatText'
 } as const

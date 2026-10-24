@@ -371,3 +371,27 @@ describe('usage logging', () => {
     expect(await h.getRunLog()).toHaveLength(1)
   })
 })
+
+describe('getReviewUsage', () => {
+  it('is zero before any walkthrough', async () => {
+    expect(await setup().h.getReviewUsage()).toMatchObject({ runs: 0, costUsd: 0 })
+  })
+
+  it('counts the generation and each chat question for the current review', async () => {
+    const { h } = setup()
+    await h.generate(target)
+    await h.ask({ stepId: 's1', question: 'why?' })
+    const u = await h.getReviewUsage()
+    expect(u.runs).toBe(2)
+    expect(u.costUsd).toBeCloseTo(0.6)
+    expect(u.tokens.output).toBe(57)
+  })
+
+  it('starts over when a new walkthrough is generated', async () => {
+    const { h } = setup()
+    await h.generate(target)
+    await h.ask({ stepId: 's1', question: 'why?' })
+    await h.generate(target)
+    expect(await h.getReviewUsage()).toMatchObject({ runs: 1, costUsd: 0.5 })
+  })
+})

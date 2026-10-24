@@ -4,6 +4,8 @@ import { summarizeRuns, type UsageSummary, type UsageTotals } from '../../../sha
 
 interface Props {
   onBack: () => void
+  /** Label for the button that calls onBack. */
+  backLabel?: string
 }
 
 /** How many recent runs the table shows. */
@@ -59,7 +61,7 @@ function TotalsCard({ label, totals }: { label: string; totals: UsageTotals }): 
   )
 }
 
-export default function Usage({ onBack }: Props): React.JSX.Element {
+export default function Usage({ onBack, backLabel = 'Back' }: Props): React.JSX.Element {
   const [summary, setSummary] = useState<UsageSummary>()
   const [error, setError] = useState<string>()
 
@@ -82,7 +84,7 @@ export default function Usage({ onBack }: Props): React.JSX.Element {
       <div className="row between">
         <h1>Usage</h1>
         <button type="button" className="link" onClick={onBack}>
-          Back
+          {backLabel}
         </button>
       </div>
       <p className="muted">

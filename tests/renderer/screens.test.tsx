@@ -44,7 +44,12 @@ beforeEach(() => {
     onChatText: vi.fn().mockReturnValue(() => {}),
     readFile: vi.fn(),
     getFixture: vi.fn().mockResolvedValue(null),
-    getRunLog: vi.fn().mockResolvedValue([])
+    getRunLog: vi.fn().mockResolvedValue([]),
+    getReviewUsage: vi.fn().mockResolvedValue({
+      runs: 0,
+      costUsd: 0,
+      tokens: { input: 0, output: 0, cacheRead: 0, cacheCreation: 0 }
+    })
   }
   window.api = api as unknown as PreloadApi
 })
