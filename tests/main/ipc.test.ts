@@ -44,7 +44,7 @@ function setup(
       args.onProgress?.({
         stage: 'reading',
         turns: 1,
-        filesRead: 1,
+        lookups: 1,
         filesTotal: 3,
         activity: [{ verb: 'Reading', target: 'new.ts' }],
         stepTitles: []
@@ -143,7 +143,7 @@ describe('generate', () => {
     expect(deps.send).toHaveBeenCalledWith('api:generateProgress', {
       stage: 'reading',
       turns: 1,
-      filesRead: 1,
+      lookups: 1,
       filesTotal: 3,
       activity: [{ verb: 'Reading', target: 'new.ts' }],
       stepTitles: [],

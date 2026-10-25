@@ -9,20 +9,34 @@ describe('ProgressTracker', () => {
     expect(tracker().snapshot()).toEqual({
       stage: 'reading',
       turns: 0,
-      filesRead: 0,
       filesTotal: 3,
+      lookups: 0,
       activity: [],
       stepTitles: []
     })
   })
 
-  it('counts each changed file once, relative to the worktree, and ignores other files', () => {
+  it('counts every search and file read as a lookup', () => {
     const t = tracker()
     t.toolUse('Read', { file_path: '/wt/src/config.ts' })
-    t.toolUse('Read', { file_path: '/wt/src/config.ts', offset: 40 })
-    t.toolUse('Read', { file_path: '/wt/src/other.ts' })
-    t.toolUse('Read', { file_path: 'src/analyze.ts' })
-    expect(t.snapshot().filesRead).toBe(2)
+    t.toolUse('Grep', { pattern: 'x' })
+    t.toolUse('Glob', { pattern: '*.ts' })
+    expect(t.snapshot().lookups).toBe(3)
+  })
+
+  it('folds back-to-back reads of the same file into one line with a section count', () => {
+    const t = tracker()
+    t.toolUse('Read', { file_path: '/wt/src/config.ts', offset: 196 })
+    t.toolUse('Read', { file_path: '/wt/src/config.ts', offset: 395 })
+    t.toolUse('Read', { file_path: '/wt/src/config.ts', offset: 625 })
+    t.toolUse('Grep', { pattern: 'x' })
+    t.toolUse('Read', { file_path: '/wt/src/config.ts' })
+    expect(t.snapshot().activity).toEqual([
+      { verb: 'Reading', target: 'src/config.ts' },
+      { verb: 'Searching for', target: 'x' },
+      { verb: 'Reading', target: 'src/config.ts', sections: 3 }
+    ])
+    expect(t.snapshot().lookups).toBe(5)
   })
 
   it('describes activity in plain words, newest first, keeping the last 4', () => {

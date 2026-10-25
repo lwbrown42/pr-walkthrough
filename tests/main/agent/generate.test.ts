@@ -153,7 +153,7 @@ describe('generateWalkthrough', () => {
       expect.objectContaining({
         stage: 'reading',
         turns: 1,
-        filesRead: 1,
+        lookups: 1,
         filesTotal: 2,
         activity: [{ verb: 'Reading', target: 'src/queue/job.ts' }]
       })

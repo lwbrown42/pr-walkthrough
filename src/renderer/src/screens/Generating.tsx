@@ -28,8 +28,8 @@ const STAGES: { id: GenerateStage; name: string }[] = [
 const INITIAL: GenerateProgressEvent = {
   stage: 'reading',
   turns: 0,
-  filesRead: 0,
   filesTotal: 0,
+  lookups: 0,
   activity: [],
   stepTitles: [],
   elapsedMs: 0
@@ -77,7 +77,7 @@ export default function Generating({
 
   const current = STAGES.findIndex((st) => st.id === progress.stage)
   const filesTotal = progress.filesTotal || opened.files.length
-  const filesLine = `${progress.filesRead} of ${filesTotal} changed files`
+  const filesLine = `${filesTotal} changed files · ${progress.lookups} lookups`
 
   return (
     <div className="screen generating">
@@ -109,13 +109,6 @@ export default function Generating({
               </span>
               {st.id === 'reading' && state === 'active' && (
                 <div className="stage-detail">
-                  <div className="stage-bar" aria-hidden="true">
-                    <i
-                      style={{
-                        width: `${filesTotal ? (100 * progress.filesRead) / filesTotal : 0}%`
-                      }}
-                    />
-                  </div>
                   {progress.activity.length > 0 && (
                     <ul className="activity">
                       {progress.activity.map((a, j) => (
@@ -126,6 +119,9 @@ export default function Generating({
                               {' '}
                               <code>{a.target}</code>
                             </>
+                          )}
+                          {a.sections && a.sections > 1 && (
+                            <span className="muted"> · {a.sections} sections</span>
                           )}
                         </li>
                       ))}

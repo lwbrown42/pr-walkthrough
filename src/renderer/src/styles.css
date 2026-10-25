@@ -727,24 +727,6 @@ button.link {
   grid-column: 2 / 4;
   margin-top: 6px;
 }
-.stage-bar {
-  height: 6px;
-  background: var(--panel);
-  border: 1px solid var(--border);
-  border-radius: 4px;
-  overflow: hidden;
-}
-.stage-bar i {
-  display: block;
-  height: 100%;
-  background: var(--accent);
-  transition: width 0.3s ease;
-}
-@media (prefers-reduced-motion: reduce) {
-  .stage-bar i {
-    transition: none;
-  }
-}
 .activity,
 .step-titles {
   list-style: none;

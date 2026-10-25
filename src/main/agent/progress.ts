@@ -6,11 +6,11 @@ const TITLE = /"title"\s*:\s*"((?:[^"\\]|\\.)*)"/g
 
 /**
  * Turns the agent's stream into what the Generating screen shows: which stage it is in, how many
- * of the PR's changed files it has opened, what it did last, and the step titles written so far.
+ * lookups it has made, what it did last, and the step titles written so far.
  */
 export class ProgressTracker {
-  private readonly changed: Set<string>
-  private readonly read = new Set<string>()
+  private readonly filesTotal: number
+  private lookups = 0
   private stage: GenerateProgress['stage'] = 'reading'
   private turns = 0
   private activity: Activity[] = []
@@ -21,7 +21,7 @@ export class ProgressTracker {
     changedPaths: string[],
     private readonly worktreePath: string
   ) {
-    this.changed = new Set(changedPaths)
+    this.filesTotal = new Set(changedPaths).size
   }
 
   private relPath(p: unknown): string {
@@ -36,15 +36,19 @@ export class ProgressTracker {
   toolUse(name: string, input: Record<string, unknown>): void {
     let item: Activity
     if (name === 'Read') {
-      const path = this.relPath(input.file_path)
-      if (this.changed.has(path)) this.read.add(path)
-      item = { verb: 'Reading', target: path }
+      item = { verb: 'Reading', target: this.relPath(input.file_path) }
     } else if (name === 'Grep') {
       item = { verb: 'Searching for', target: String(input.pattern ?? '') }
     } else if (name === 'Glob') {
       item = { verb: 'Finding files matching', target: String(input.pattern ?? '') }
     } else {
       item = { verb: 'Working', target: '' }
+    }
+    if (name === 'Read' || name === 'Grep' || name === 'Glob') this.lookups += 1
+    const last = this.activity[0]
+    if (name === 'Read' && last?.verb === 'Reading' && last.target === item.target) {
+      this.activity = [{ ...last, sections: (last.sections ?? 1) + 1 }, ...this.activity.slice(1)]
+      return
     }
     this.activity = [item, ...this.activity].slice(0, ACTIVITY_LIMIT)
   }
@@ -79,8 +83,8 @@ export class ProgressTracker {
     return {
       stage: this.stage,
       turns: this.turns,
-      filesRead: this.read.size,
-      filesTotal: this.changed.size,
+      filesTotal: this.filesTotal,
+      lookups: this.lookups,
       activity: [...this.activity],
       stepTitles: [...this.titles]
     }

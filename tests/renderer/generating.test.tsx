@@ -22,8 +22,8 @@ const opened: OpenResult = {
 const base: GenerateProgressEvent = {
   stage: 'reading',
   turns: 0,
-  filesRead: 0,
   filesTotal: 12,
+  lookups: 0,
   activity: [],
   stepTitles: [],
   elapsedMs: 0
@@ -70,16 +70,18 @@ describe('Generating', () => {
       emit({
         ...base,
         turns: 4,
-        filesRead: 3,
+        lookups: 9,
         activity: [
           { verb: 'Searching for', target: 'SkipHeaders' },
-          { verb: 'Reading', target: 'src/config.ts' }
+          { verb: 'Reading', target: 'src/config.ts', sections: 4 }
         ]
       })
     )
     const reading = stage('Reading the PR')
     expect(reading.getAttribute('data-state')).toBe('active')
-    expect(within(reading).getByText('3 of 12 changed files')).toBeTruthy()
+    expect(within(reading).getByText('12 changed files · 9 lookups')).toBeTruthy()
+    expect(within(reading).queryByText(/ of 12/)).toBeNull()
+    expect(within(reading).getByText('· 4 sections')).toBeTruthy()
     expect(within(reading).getByText('SkipHeaders')).toBeTruthy()
     expect(within(reading).getByText('src/config.ts').tagName).toBe('CODE')
     expect(stage('Writing the steps').getAttribute('data-state')).toBe('pending')
@@ -91,12 +93,12 @@ describe('Generating', () => {
       emit({
         ...base,
         stage: 'writing',
-        filesRead: 11,
+        lookups: 20,
         stepTitles: ['Merging options', 'The type']
       })
     )
     expect(stage('Reading the PR').getAttribute('data-state')).toBe('done')
-    expect(within(stage('Reading the PR')).getByText('11 of 12 changed files')).toBeTruthy()
+    expect(within(stage('Reading the PR')).getByText('12 changed files · 20 lookups')).toBeTruthy()
     const writing = stage('Writing the steps')
     expect(writing.getAttribute('data-state')).toBe('active')
     expect(within(writing).getByText('step 3…')).toBeTruthy()
