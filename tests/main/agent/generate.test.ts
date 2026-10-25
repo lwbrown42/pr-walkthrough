@@ -309,17 +309,19 @@ describe('WALKTHROUGH_SYSTEM_PROMPT', () => {
   it('carries the spec-fixed rules', () => {
     for (const s of [
       'core idea',
+      'newcomer',
+      'existing code as a context segment',
+      'depth-first',
+      'Separate fix:',
       'whyNext',
       'parentId',
-      'context',
+      'one level deep',
+      'kind "context"',
       'Everything else',
-      'Read',
-      'Grep',
-      'Glob',
       '1-based',
-      '2 to 4 short paragraphs',
+      '1 to 3 short paragraphs',
       'separated by a blank line',
-      'Detours are one level deep'
+      'Only backticks are rendered'
     ])
       expect(WALKTHROUGH_SYSTEM_PROMPT).toContain(s)
   })

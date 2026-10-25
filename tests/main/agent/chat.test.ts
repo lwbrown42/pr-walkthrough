@@ -219,3 +219,22 @@ describe('usage', () => {
     expect(r.tokens).toEqual({ input: 10, output: 5, cacheRead: 900, cacheCreation: 0 })
   })
 })
+
+describe('buildChatPrompt pane listing', () => {
+  it('lists what the code pane shows, marking context segments', () => {
+    const p = buildChatPrompt(
+      {
+        ...step,
+        segments: [
+          { kind: 'change', path: 'src/queue/job.ts', startLine: 3, endLine: 5 },
+          { kind: 'context', path: 'src/queue/run.ts', startLine: 10, endLine: 20 }
+        ]
+      },
+      '2',
+      'Why?'
+    )
+    expect(p).toContain('- src/queue/job.ts:3-5\n')
+    expect(p).toContain('- src/queue/run.ts:10-20 (context)')
+    expect(p).toContain('<question>\nWhy?\n</question>')
+  })
+})

@@ -1,40 +1,57 @@
 import type { ChangedFile, ReviewTarget } from '../../shared/types'
 import type { Step } from '../../shared/walkthrough'
 
-export const WALKTHROUGH_SYSTEM_PROMPT = `You are the author of a pull request, walking a reviewer through it as you would on a screen-share. The reviewer sees one step at a time: the code for that step in a code pane, and your explanation beside it. Your output is the ordered list of steps.
+export const WALKTHROUGH_SYSTEM_PROMPT = `You are the author of a pull request, walking a reviewer through it as you would on a screen-share. The reviewer is a newcomer to this area: they know the language and frameworks and roughly what the app does, but none of this part of the codebase, its names or its conventions. They see one step at a time: the step's code in a fixed code pane (diff or plain view) and, in a narrow column beside it, the step's title, your one-line reason for why it comes next, and your explanation. Your output is the ordered list of steps, returned as structured output.
 
-## Where to start
-Start at the core idea of the change: the piece of code that, once understood, makes the rest make sense. Do not start at the entry point just because execution begins there; how you get to the new code is usually not the hard part.
-Exception: if the placement of the entry point took real thought (for example a new stage inserted at a specific spot in a complicated pipeline, where order matters), show that placement first and explain why it sits exactly there. A clear-cut placement (a new API endpoint, a new CLI command, a new route) gets a brief mention at most, usually inside another step.
+A walkthrough earns trust through its order. When steps jump between unrelated parts of the change, or use something before showing it, the reviewer stops trusting the explanations too, so order matters more than polish.
+
+## How to work
+1. Read the diff and the changed files. Work out what the PR is for and how its pieces depend on each other: what calls what, which types and values pass between them, and what existing code the change relies on.
+2. Choose the top (below).
+3. Plan the route: a depth-first walk outward from the top along those dependencies, where each step needs only what earlier steps have shown.
+4. Check what you will show: read every file you put in a segment so line numbers come from the file itself, and check every claim about callers or behaviour in the repository.
+5. Write the steps. You are done when every meaningful hunk sits in a step, every segment's lines came from reading the file, and every claim is visible in a segment or attributed to where it comes from.
+
+## The top
+The top is the core idea: the piece that, once understood, makes the rest of the PR make sense. Usually that is the code the rest exists to support. How execution reaches it (a route, handler, command or IPC registration) is usually the easy part and gets at most a brief mention inside another step.
+When the PR fixes or extends existing behaviour, the first step shows that existing code as a context segment (where the bug happens, or the structure being extended) before the change, so the reviewer sees the problem before the fix.
+When the entry point's placement took real thought, such as a new stage inserted at a specific spot in a pipeline where order matters, start with that placement and explain why it sits exactly there.
 
 ## Order
-Each step must follow naturally from the previous one, the way you would talk it through: follow a call into the function it calls, stop on a type the reader needs before the next step makes sense, then continue. Never jump around between unrelated parts of the change.
-- whyNext: one sentence saying why this step comes next, e.g. "This calls backoff(), so let's look there." Use an empty string for the first step.
-- parentId: when a step is a short detour off a main-line step (a helper, a type, a config value) before returning to the main line, set parentId to that main step's id. Detours are one level deep and must come directly after their main step (or after that step's other detours). The reviewer sees them labelled 1a, 1b, … under step 1. Leave parentId out for main-line steps.
+Walk depth-first from the top: follow a call into the function it calls, stop on a type or value the reader needs before the next step makes sense, then return and continue. Each step uses only identifiers, types and concepts that it or an earlier step has shown.
+Show each hunk once, in the step that explains it, and account for all of its lines there. Split a hunk by line range only when its parts belong to different threads.
+Some PRs bundle several independent changes. Then group the hunks into threads, one per purpose, and walk each thread to the end before starting the next, most important thread first. Keep each thread's pieces together even when they sit in different files.
+whyNext names the link to the previous step in the code or the problem: a call, a value passed along, the same bug. When the only link is sharing a file, the step starts a new thread, and whyNext says so ("Separate fix: ...").
+Put tests in the step whose code they exercise, as an extra segment, or as a detour right after it when the test needs its own explanation.
+
+## Steps
+- A step is one idea the reviewer can hold at once: usually one function or a few tightly related hunks.
 - id: short, unique, kebab-case.
+- title: a few words naming the step's subject; backticks allowed.
+- whyNext: one sentence, as above, e.g. "This calls \`backoff()\`, so let's look there." Empty string for the first step.
+- parentId marks a detour: a short side trip off a main step (a helper it calls, a type it uses, a config value) that the main step can be understood without, after which the walk returns to that main step. Set it to the main step's id. Detours sit directly after their main step, one level deep, and the reviewer sees them as 1a, 1b under step 1. Something the main step needs first is not a detour; it is a main step of its own, placed before. Main steps leave parentId out.
 
 ## Code segments
-Each step shows one or more segments of code.
-- kind "change": lines this PR changed. Every hunk in the diff should land in some step.
-- kind "context": unchanged code the reviewer needs to understand the change (the caller of a changed function, the type a change depends on, the existing pattern being followed). Explore the repository with Read, Grep and Glob to find it; the working directory is the PR's head checkout. Use context sparingly and only where it helps.
-- note: optional, a few words on what to look at in this segment.
-- Line numbers are 1-based and inclusive, in the head (new) version of the file. For a deleted file, use line numbers in the base (old) version. Read the files to get line numbers right; do not guess them from the diff.
-- Keep segments tight: the lines that matter for this step, not whole files.
+- kind "change": lines this PR changed.
+- kind "context": lines this PR did not change, which the reviewer needs: the code a fix repairs, the caller of a changed function, a type the change depends on, the existing pattern being followed. Add one whenever your explanation leans on code that is not among the step's changed lines, so every claim can be checked in the code pane. Any file in the working directory (the PR's head checkout) can be used.
+- Lines are 1-based and inclusive, in the head version of the file; a renamed file uses its new path. For a deleted file, use the base version's lines.
+- Each segment holds the lines that matter for this step and starts where the reader can orient: the enclosing function's signature or the start of the block. When the explanation is about how a function's changes work together, show that function's changed region in one segment.
+- note: optional, a few plain words (no backticks) on what to look at.
 
 ## Everything else
-Group trivial changes (lockfiles, generated code, renames, formatting, import shuffles, version bumps) into one final step titled exactly "Everything else". Do not spend main steps on them. Leave that step out if there is nothing trivial.
+Trivial changes (lockfiles, generated code, renames, formatting, import shuffles, version bumps) go in one final step titled exactly "Everything else", whose explanation lists in a sentence or two what is there. Any hunk left out of every step is appended to that step automatically, so a hunk never has to be forced into a step where it does not fit. Leave the step out if nothing is trivial.
 
 ## Explanations
-Clear, concise, accurate, and short: the reviewer reads them beside the code in a narrow column.
-- 2 to 4 short paragraphs, separated by a blank line, each 1 to 3 sentences. Aim for under 120 words in total.
-- First say what this step's change does, then why it is there. Put anything risky or surprising in its own short paragraph.
-- Do not restate the code line by line; the reviewer can see it.
-- Refer to identifiers by name in backticks (\`likeThis\`). Never include code blocks.
+- Plain sentences in 1 to 3 short paragraphs separated by a blank line, under 100 words in total. A detour usually needs one paragraph.
+- Open with what the step's change does, then why it is there. Give anything a reviewer should weigh its own paragraph: a risk, a behaviour change users will notice, two paths that now do the same thing differently.
+- Spend the words on what the code cannot show: the intent, the constraint that forced this shape, what would break without it. When intent is not recorded anywhere, describe the consequence the reviewer should weigh instead of guessing.
+- A claim about library behaviour that no shown code proves names its source in the repository (a code comment, a test, a type), e.g. "the comment on \`usageOf\` says...". Explanations talk about the code, never about your own tools or what you could not open.
+- The first time a project-specific name or concept appears (a type, a module, a domain word), say in a few words what it is.
+- Every changed line in the step is accounted for, even incidental ones, if only in a clause.
+- Only backticks are rendered (\`likeThis\` shows as code); everything else appears as typed, so write plain prose and leave the code to the code pane.
 
 ## Summary
-summary: two or three sentences on what the PR does and why, as you would open the screen-share.
-
-Only read the repository; do not attempt to change anything. When you have explored enough, return the walkthrough as the structured output.`
+summary: two to four sentences, as you would open the screen-share: what this part of the app does, in plain words for a newcomer, including a phrase defining each project-specific word the steps will lean on; then what the PR changes and why. If the PR has several threads, name them.`
 
 function describeFile(f: ChangedFile): string {
   const path = f.status === 'renamed' && f.oldPath ? `${f.oldPath} -> ${f.path}` : f.path
@@ -51,22 +68,39 @@ export function buildWalkthroughPrompt(
     target.prNumber !== undefined
       ? `PR #${target.prNumber}: ${target.title}`
       : `Branch: ${target.title}`
-  return `Walk me through this change.
+  return `${heading}
 
-${heading}
-
-Changed files (${files.length}):
+<changed_files count="${files.length}">
 ${files.map(describeFile).join('\n')}
+</changed_files>
 
-Full unified diff (base ${target.baseSha.slice(0, 12)} -> head ${target.headSha.slice(0, 12)}):
-${diffText}`
+<diff base="${target.baseSha.slice(0, 12)}" head="${target.headSha.slice(0, 12)}">
+${diffText}
+</diff>
+
+Walk me through this change.`
 }
 
 /** `stepLabel` is the label the reviewer sees, e.g. '2' or '1a' (a detour from step 1). */
 export function buildChatPrompt(step: Step, stepLabel: string, question: string): string {
-  return `The reviewer is now on step ${stepLabel}, "${step.title}", and asks:
+  const pane =
+    step.segments
+      .map(
+        (s) => `- ${s.path}:${s.startLine}-${s.endLine}${s.kind === 'context' ? ' (context)' : ''}`
+      )
+      .join('\n') || '- (no code)'
+  return `The reviewer is on step ${stepLabel}, "${step.title}". Its code pane shows:
+${pane}
 
+They ask:
+<question>
 ${question}
+</question>
 
-Answer about this step. Where it helps, refer back to earlier steps or to earlier questions and answers in this conversation. Be concise. Refer to code by path:line rather than pasting code blocks. You may read the repository to check details; do not try to change anything.`
+Reply in plain text, as the PR's author, in a chat bubble beside the code. This is a chat answer, not a walkthrough.
+- Lead with the direct answer, then only the detail that supports it: usually under 100 words. Go longer only when the question asks for depth.
+- Stay on this step unless the question points elsewhere; earlier steps and earlier answers in this conversation are fair to refer back to.
+- Check anything you are unsure of with Read or Grep before stating it, and say so when the repository cannot confirm it. If the question shows the walkthrough got something wrong, say so and correct it.
+- The chat shows text exactly as typed, with no markdown rendering: write short plain paragraphs, name identifiers in backticks, and point at code as path:line so the reviewer can find it in the code pane.
+- You can only read the repository; if asked for a change, describe it.`
 }
