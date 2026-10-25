@@ -69,7 +69,7 @@ export default function Walkthrough({ walkthrough, onExit }: Props): React.JSX.E
           {reviewCost !== undefined && (
             <span className="review-cost muted">This review: ${reviewCost.toFixed(2)}</span>
           )}
-          <button type="button" onClick={() => setUsageOpen(true)}>
+          <button type="button" className="link" onClick={() => setUsageOpen(true)}>
             Usage
           </button>
           <div className="toggle" role="group" aria-label="Code view">
