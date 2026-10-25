@@ -1,14 +1,11 @@
 import { query, type SDKResultMessage } from '@anthropic-ai/claude-agent-sdk'
 import type { ChangedFile, ReviewTarget, Settings, TokenUsage } from '../../shared/types'
 import { AgentWalkthrough, agentWalkthroughJsonSchema } from '../../shared/walkthrough'
+import type { GenerateProgress } from '../../shared/progress'
 import { normalizeWalkthrough, type LineCounts } from '../walkthrough/normalize'
 import { AgentRunError, buildAgentOptions, resultError, usageOf } from './options'
+import { ProgressTracker } from './progress'
 import { buildWalkthroughPrompt, WALKTHROUGH_SYSTEM_PROMPT } from './prompt'
-
-export interface GenerateProgress {
-  turns: number
-  lastTool?: string
-}
 
 export interface GenerateArgs {
   target: ReviewTarget
@@ -41,27 +38,70 @@ export async function generateWalkthrough(args: GenerateArgs): Promise<GenerateR
     ...buildAgentOptions(settings, target.worktreePath),
     ...(abortController ? { abortController } : {}),
     systemPrompt: WALKTHROUGH_SYSTEM_PROMPT,
+    // Stream partial output so step titles can be shown while the walkthrough is written.
+    includePartialMessages: true,
     outputFormat: { type: 'json_schema' as const, schema: agentWalkthroughJsonSchema }
   }
   const started = Date.now()
+
+  // Changed files the agent can open in the head checkout.
+  const progress = new ProgressTracker(
+    files.filter((f) => !f.binary && f.status !== 'deleted').map((f) => f.path),
+    target.worktreePath
+  )
+  const report = (): void => onProgress?.(progress.snapshot())
 
   let final: SDKResultMessage | undefined
   try {
     // Streamed assistant messages can split one API message into several frames; count distinct ids.
     const assistantIds = new Set<string>()
+    // Content block index of the StructuredOutput tool call in the message being streamed.
+    let outputBlock: number | undefined
+    let outputStreamed = false
     for await (const msg of queryFn({
       prompt: buildWalkthroughPrompt(target, files, diffText),
       options
     })) {
-      if (msg.type === 'assistant' && msg.parent_tool_use_id === null) {
-        assistantIds.add(msg.message.id)
-        const tools = msg.message.content.filter((b) => b.type === 'tool_use')
-        const lastTool = tools.at(-1)?.name
-        onProgress?.(
-          lastTool ? { turns: assistantIds.size, lastTool } : { turns: assistantIds.size }
-        )
+      if ('parent_tool_use_id' in msg && msg.parent_tool_use_id) continue
+      if (msg.type === 'stream_event') {
+        const e = msg.event
+        if (e.type === 'message_start') {
+          outputBlock = undefined
+        } else if (
+          e.type === 'content_block_start' &&
+          e.content_block.type === 'tool_use' &&
+          e.content_block.name === 'StructuredOutput'
+        ) {
+          outputBlock = e.index
+          if (progress.startOutput()) report()
+        } else if (
+          e.type === 'content_block_delta' &&
+          e.index === outputBlock &&
+          e.delta.type === 'input_json_delta'
+        ) {
+          outputStreamed = true
+          if (progress.outputDelta(e.delta.partial_json)) report()
+        }
+      } else if (msg.type === 'assistant') {
+        if (!assistantIds.has(msg.message.id)) {
+          assistantIds.add(msg.message.id)
+          progress.turn()
+        }
+        for (const block of msg.message.content) {
+          if (block.type !== 'tool_use') continue
+          if (block.name === 'StructuredOutput') {
+            progress.startOutput()
+            // Without streamed deltas, read the titles from the finished output.
+            if (!outputStreamed) progress.outputDelta(JSON.stringify(block.input))
+          } else {
+            progress.toolUse(block.name, (block.input ?? {}) as Record<string, unknown>)
+          }
+        }
+        report()
       } else if (msg.type === 'result') {
         final = msg
+        progress.finish()
+        report()
       }
     }
   } catch (err) {

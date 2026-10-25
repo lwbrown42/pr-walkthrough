@@ -5,6 +5,7 @@ import { AgentRunError } from '../../../src/main/agent/options'
 import { buildWalkthroughPrompt, WALKTHROUGH_SYSTEM_PROMPT } from '../../../src/main/agent/prompt'
 import { agentWalkthroughJsonSchema, type AgentWalkthrough } from '../../../src/shared/walkthrough'
 import type { ChangedFile, ReviewTarget, Settings } from '../../../src/shared/types'
+import type { GenerateProgress } from '../../../src/shared/progress'
 
 const target: ReviewTarget = {
   kind: 'github',
@@ -70,10 +71,14 @@ const validOutput: AgentWalkthrough = {
   ]
 }
 
-const assistantToolUse = (name: string, id = 'msg_1'): SDKMessage =>
+const assistantToolUse = (
+  name: string,
+  id = 'msg_1',
+  input: Record<string, unknown> = {}
+): SDKMessage =>
   ({
     type: 'assistant',
-    message: { id, content: [{ type: 'tool_use', id: `tu_${id}`, name, input: {} }] },
+    message: { id, content: [{ type: 'tool_use', id: `tu_${id}`, name, input }] },
     parent_tool_use_id: null,
     uuid: '00000000-0000-0000-0000-000000000001',
     session_id: 's1'
@@ -109,7 +114,7 @@ function fakeQuery(messages: SDKMessage[]): {
 const run = (
   queryFn: never,
   over: Partial<Settings> = {},
-  onProgress?: (p: { turns: number; lastTool?: string }) => void
+  onProgress?: (p: GenerateProgress) => void
 ): Promise<GenerateResult> =>
   generateWalkthrough({
     target,
@@ -132,7 +137,10 @@ const rejectsWith = async (p: Promise<unknown>, reason: AgentRunError['reason'])
 
 describe('generateWalkthrough', () => {
   it('returns the normalized walkthrough, session, cost and turns, and reports tool progress', async () => {
-    const q = fakeQuery([assistantToolUse('Grep'), result({ structured_output: validOutput })])
+    const q = fakeQuery([
+      assistantToolUse('Read', 'msg_1', { file_path: '/tmp/wt/src/queue/job.ts' }),
+      result({ structured_output: validOutput })
+    ])
     const onProgress = vi.fn()
     const out = await run(q.fn, {}, onProgress)
 
@@ -141,7 +149,16 @@ describe('generateWalkthrough', () => {
     expect(out.turns).toBe(3)
     expect(out.durationMs).toBeGreaterThanOrEqual(0)
     expect(out.walkthrough.steps.map((s) => s.id)).toEqual(['retry', 'job'])
-    expect(onProgress).toHaveBeenCalledWith({ turns: 1, lastTool: 'Grep' })
+    expect(onProgress).toHaveBeenCalledWith(
+      expect.objectContaining({
+        stage: 'reading',
+        turns: 1,
+        filesRead: 1,
+        filesTotal: 2,
+        activity: [{ verb: 'Reading', target: 'src/queue/job.ts' }]
+      })
+    )
+    expect(onProgress).toHaveBeenLastCalledWith(expect.objectContaining({ stage: 'finishing' }))
   })
 
   it('normalizes the agent output (coverage fill adds Everything else)', async () => {
@@ -375,5 +392,59 @@ describe('token usage', () => {
     const err = (await run(q.fn).catch((e: unknown) => e)) as AgentRunError
     expect(err.reason).toBe('max_budget')
     expect(err.tokens?.output).toBe(820)
+  })
+})
+
+describe('progress while the walkthrough is written', () => {
+  const ev = (event: Record<string, unknown>): SDKMessage =>
+    ({ type: 'stream_event', event, parent_tool_use_id: null }) as unknown as SDKMessage
+
+  it('streams partial messages and reports step titles as they are written', async () => {
+    const json = JSON.stringify(validOutput)
+    const cut = json.indexOf('"title":"Job"') + 5
+    const q = fakeQuery([
+      ev({ type: 'message_start', message: { id: 'msg_9' } }),
+      ev({
+        type: 'content_block_start',
+        index: 0,
+        content_block: { type: 'tool_use', id: 'tu_9', name: 'StructuredOutput', input: {} }
+      }),
+      ev({
+        type: 'content_block_delta',
+        index: 0,
+        delta: { type: 'input_json_delta', partial_json: json.slice(0, cut) }
+      }),
+      ev({
+        type: 'content_block_delta',
+        index: 0,
+        delta: { type: 'input_json_delta', partial_json: json.slice(cut) }
+      }),
+      result({ structured_output: validOutput })
+    ])
+    const onProgress = vi.fn()
+    await run(q.fn, {}, onProgress)
+
+    expect(q.calls[0].options?.includePartialMessages).toBe(true)
+    const snaps = onProgress.mock.calls.map((c) => c[0] as GenerateProgress)
+    expect(snaps.find((p) => p.stage === 'writing' && p.stepTitles.length === 0)).toBeTruthy()
+    expect(snaps.find((p) => p.stepTitles.join('|') === 'Retry policy')).toBeTruthy()
+    expect(snaps.find((p) => p.stepTitles.join('|') === 'Retry policy|Job')).toBeTruthy()
+  })
+
+  it('falls back to the complete StructuredOutput block when nothing streamed', async () => {
+    const q = fakeQuery([
+      assistantToolUse(
+        'StructuredOutput',
+        'msg_2',
+        validOutput as unknown as Record<string, unknown>
+      ),
+      result({ structured_output: validOutput })
+    ])
+    const onProgress = vi.fn()
+    await run(q.fn, {}, onProgress)
+    const writing = onProgress.mock.calls
+      .map((c) => c[0] as GenerateProgress)
+      .find((p) => p.stage === 'writing')
+    expect(writing?.stepTitles).toEqual(['Retry policy', 'Job'])
   })
 })

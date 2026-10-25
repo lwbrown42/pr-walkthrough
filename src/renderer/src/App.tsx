@@ -82,7 +82,8 @@ function App(): React.JSX.Element | null {
     case 'generating':
       return (
         <Generating
-          target={state.opened.target}
+          opened={state.opened}
+          limits={{ maxTurns: settings.maxTurns, maxBudgetUsd: settings.maxBudgetUsd }}
           onDone={(walkthrough) => setState({ screen: 'walkthrough', walkthrough })}
           onError={(error) => setState({ screen: 'open', opened: state.opened, error })}
           onCancelled={() => setState({ screen: 'open', opened: state.opened })}

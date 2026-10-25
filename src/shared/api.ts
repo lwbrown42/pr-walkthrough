@@ -1,4 +1,5 @@
 import type { ChangedFile, ChatMessage, ReviewTarget, RunLogEntry, Settings } from './types'
+import type { GenerateProgress } from './progress'
 import type { UsageTotals } from './usage'
 import type { Walkthrough } from './walkthrough'
 
@@ -16,11 +17,7 @@ export interface OpenResult {
 
 export type ApiError = { error: { message: string; reason?: string } }
 
-export interface GenerateProgressEvent {
-  turns: number
-  lastTool?: string
-  elapsedMs: number
-}
+export type GenerateProgressEvent = GenerateProgress & { elapsedMs: number }
 
 export type PublicSettings = Omit<Settings, 'apiKey'> & { hasApiKey: boolean }
 

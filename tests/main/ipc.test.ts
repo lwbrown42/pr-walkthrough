@@ -41,7 +41,14 @@ function setup(
       readRunLog: () => [...log]
     },
     generateWalkthrough: vi.fn(async (args) => {
-      args.onProgress?.({ turns: 1, lastTool: 'Read' })
+      args.onProgress?.({
+        stage: 'reading',
+        turns: 1,
+        filesRead: 1,
+        filesTotal: 3,
+        activity: [{ verb: 'Reading', target: 'new.ts' }],
+        stepTitles: []
+      })
       return {
         walkthrough: { summary: 's', steps: [step] },
         sessionId: 'sess1',
@@ -134,8 +141,12 @@ describe('generate', () => {
     expect(args.diffText).toBe('DIFF')
     expect(args.lineCounts).toEqual({ head: { 'new.ts': 3 }, base: { 'old.ts': 3, 'gone.ts': 3 } })
     expect(deps.send).toHaveBeenCalledWith('api:generateProgress', {
+      stage: 'reading',
       turns: 1,
-      lastTool: 'Read',
+      filesRead: 1,
+      filesTotal: 3,
+      activity: [{ verb: 'Reading', target: 'new.ts' }],
+      stepTitles: [],
       elapsedMs: expect.any(Number)
     })
     expect(log).toHaveLength(1)
