@@ -181,6 +181,9 @@ function SegmentView({
           renderSideBySide: false,
           originalEditable: false,
           renderOverviewRuler: false,
+          // Row colours already mark adds and removes. The +/− signs share the decorations
+          // column with the segment-range bar, which covers them.
+          renderIndicators: false,
           // Long unchanged runs inside the window fold into "N hidden lines" bars.
           hideUnchangedRegions: { enabled: true, contextLineCount: 3, minimumLineCount: 6 }
         }}
