@@ -15,7 +15,7 @@ Built for reviewing large, often agent-written PRs, where reading the diff file 
   - **Left:** every step, always visible.
   - **Center:** the code for the current step, in **Diff** or **Plain** mode. It shows the changed lines plus a few lines around them, and unchanged code from elsewhere in the repo when it helps, marked as context.
   - **Right:** the explanation for the step, and a chat for questions about it. Answers can refer back to earlier steps and earlier questions.
-- **Tracks usage.** Every generation and chat question is logged with its cost, turns, duration and tokens. The **Usage** screen shows totals for today, this month, and each PR.
+- **Tracks usage.** Every generation and chat question is logged with its cost, turns, duration and tokens. The **Usage** screen shows totals for today, this month, and each PR. Open it from the Open screen, or mid-review from the walkthrough's top bar, which also shows what the current review has cost so far.
 
 ## Requirements
 
