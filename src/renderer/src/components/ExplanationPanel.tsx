@@ -19,7 +19,7 @@ export default function ExplanationPanel({
 }: Props): React.JSX.Element {
   return (
     <section className="explanation">
-      <p className="muted">
+      <p className="step-of muted">
         Step {label} of {mainCount}
         {detourFrom && <span className="detour-tag"> · Detour from step {detourFrom}</span>}
       </p>
@@ -27,7 +27,8 @@ export default function ExplanationPanel({
         <InlineCode text={step.title} />
       </h2>
       {step.whyNext && (
-        <p className="muted why-next">
+        <p className="why-next">
+          <strong>Why now: </strong>
           <InlineCode text={step.whyNext} />
         </p>
       )}

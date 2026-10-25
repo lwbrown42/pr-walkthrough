@@ -5,7 +5,7 @@
       "id": "s1",
       "title": "Walkthrough screen added (added file, diff vs plain)",
       "whyNext": "",
-      "explanation": "A brand new file: in Diff mode everything is green; Plain mode shows just the code.",
+      "explanation": "A brand new file: it shows as plain code with a New file badge in both modes.",
       "segments": [
         {
           "kind": "change",

@@ -1,5 +1,5 @@
 import type { ChangedFile, Hunk } from '../../../shared/types'
-import type { CodeSegment } from '../../../shared/walkthrough'
+import type { CodeSegment, Step } from '../../../shared/walkthrough'
 
 export interface SegmentView {
   editor: 'diff' | 'plain' | 'binary'
@@ -14,9 +14,9 @@ export function describeSegment(
   mode: 'diff' | 'plain'
 ): SegmentView {
   if (file?.binary) return { editor: 'binary', sha: 'head', label: 'Binary file — not shown' }
-  if (seg.kind === 'context')
-    return { editor: 'plain', sha: 'head', label: `${seg.path} · unchanged · context` }
-  if (mode === 'plain')
+  if (seg.kind === 'context') return { editor: 'plain', sha: 'head', label: seg.path }
+  // A whole-file add or delete diffs against nothing: all green or red, plus a stray empty line.
+  if (mode === 'plain' || file?.status === 'added' || file?.status === 'deleted')
     return { editor: 'plain', sha: file?.status === 'deleted' ? 'base' : 'head', label: seg.path }
   return { editor: 'diff', sha: 'both', label: seg.path }
 }
@@ -98,19 +98,11 @@ export function segmentWindow(
     else window.head = own
     return window
   }
-  if (deleted) {
-    window.head = { start: 1, end: 0 }
-    window.base = own
-  } else if (file?.status === 'added') {
-    window.head = own
-    window.base = { start: 1, end: 0 }
-  } else {
-    window.head = own
-    const hunks = file?.hunks ?? []
-    window.base = {
-      start: Math.max(1, headToBase(start, hunks, 'start')),
-      end: Math.min(totals.base, headToBase(end, hunks, 'end'))
-    }
+  window.head = own
+  const hunks = file?.hunks ?? []
+  window.base = {
+    start: Math.max(1, headToBase(start, hunks, 'start')),
+    end: Math.min(totals.base, headToBase(end, hunks, 'end'))
   }
   return window
 }
@@ -122,4 +114,33 @@ export function sliceLines(text: string, range: LineRange): string {
     .split('\n')
     .slice(range.start - 1, range.end)
     .join('\n')
+}
+
+/** e.g. "3 files: 2 modified, 1 renamed", from the files the step's segments touch. */
+export function summarizeFiles(step: Step, files: ChangedFile[]): string {
+  const paths = [...new Set(step.segments.map((s) => s.path))]
+  const counts = new Map<string, number>()
+  for (const p of paths) {
+    const status = files.find((f) => f.path === p)?.status ?? 'modified'
+    counts.set(status, (counts.get(status) ?? 0) + 1)
+  }
+  const parts = [...counts].map(([status, n]) => `${n} ${status}`).join(', ')
+  return `${paths.length} ${paths.length === 1 ? 'file' : 'files'}: ${parts}`
+}
+
+/**
+ * Short names for the file bar: the file name, plus its folder when two files share a name, plus
+ * the start line when one file has several segments. Context segments say so.
+ */
+export function segmentLabels(segments: CodeSegment[]): string[] {
+  const base = (p: string): string => p.split('/').pop() ?? p
+  const paths = [...new Set(segments.map((s) => s.path))]
+  return segments.map((seg) => {
+    const parts = seg.path.split('/')
+    const clash = paths.some((p) => p !== seg.path && base(p) === base(seg.path))
+    let label = clash ? parts.slice(-2).join('/') : base(seg.path)
+    const sameFile = segments.filter((s) => s.path === seg.path && s.kind === seg.kind)
+    if (sameFile.length > 1) label += `:${seg.startLine}`
+    return seg.kind === 'context' ? `${label} (context)` : label
+  })
 }

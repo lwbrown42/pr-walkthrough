@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from 'react'
 import type { ChatMessage } from '../../../shared/types'
 import { friendlyError } from '../errors'
+import InlineCode from './InlineCode'
 
 interface Props {
   stepId: string
@@ -18,7 +19,7 @@ interface Failed {
 function Bubble({ message }: { message: ChatMessage }): React.JSX.Element {
   return (
     <div className={`chat-message chat-${message.role}`} data-role={message.role}>
-      {message.text}
+      <InlineCode text={message.text} />
     </div>
   )
 }
@@ -92,6 +93,7 @@ export default function ChatPanel({ stepId, steps, messages, onAppend }: Props):
         <div className="chat-earlier">
           <button
             type="button"
+            className="link"
             onClick={() => setShowEarlier((v) => !v)}
             aria-expanded={showEarlier}
           >
@@ -109,6 +111,11 @@ export default function ChatPanel({ stepId, steps, messages, onAppend }: Props):
         </div>
       )}
       <div className="chat-list" ref={listRef}>
+        {current.length === 0 && !streamingHere && !failedHere && (
+          <p className="muted chat-empty">
+            Ask anything about this step. Answers can refer back to earlier steps and questions.
+          </p>
+        )}
         {current.map((m) => (
           <Bubble key={m.id} message={m} />
         ))}

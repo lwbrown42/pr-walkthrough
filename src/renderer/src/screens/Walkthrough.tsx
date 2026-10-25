@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import type { ChatMessage } from '../../../shared/types'
 import { labelSteps } from '../../../shared/stepLabels'
 import type { Walkthrough as WalkthroughData } from '../../../shared/walkthrough'
@@ -6,6 +6,7 @@ import ChatPanel from '../components/ChatPanel'
 import CodePane from '../components/CodePane'
 import ExplanationPanel from '../components/ExplanationPanel'
 import StepsList from '../components/StepsList'
+import FileBar from '../components/FileBar'
 import Usage from './Usage'
 
 interface Props {
@@ -25,6 +26,16 @@ export default function Walkthrough({ walkthrough, onExit }: Props): React.JSX.E
   const [mode, setMode] = useState<'diff' | 'plain'>('diff')
   const [usageOpen, setUsageOpen] = useState(false)
   const [reviewCost, setReviewCost] = useState<number>()
+  const [seen, setSeen] = useState<ReadonlySet<number>>(() => new Set([0]))
+  const codeRef = useRef<HTMLDivElement>(null)
+
+  // A step counts as seen once opened (set during render, so no extra effect pass).
+  if (!seen.has(index)) setSeen(new Set(seen).add(index))
+
+  // Each step starts at the top of its code.
+  useEffect(() => {
+    if (codeRef.current) codeRef.current.scrollTop = 0
+  }, [index])
 
   // Refresh after each chat answer (every answer adds a message).
   useEffect(() => {
@@ -58,6 +69,8 @@ export default function Walkthrough({ walkthrough, onExit }: Props): React.JSX.E
   }, [steps.length, usageOpen])
 
   const step = steps[index]
+  const jumpTo = (i: number): void =>
+    document.getElementById(`segment-${i}`)?.scrollIntoView?.({ block: 'start' })
   const { labels, mainCount } = labelSteps(steps)
   if (!step) return <div className="screen">No steps.</div>
 
@@ -72,28 +85,39 @@ export default function Walkthrough({ walkthrough, onExit }: Props): React.JSX.E
           <button type="button" className="link" onClick={() => setUsageOpen(true)}>
             Usage
           </button>
-          <div className="toggle" role="group" aria-label="Code view">
-            {(['diff', 'plain'] as const).map((m) => (
-              <button
-                key={m}
-                type="button"
-                aria-pressed={mode === m}
-                className={mode === m ? 'active' : undefined}
-                onClick={() => setMode(m)}
-              >
-                {m === 'diff' ? 'Diff' : 'Plain'}
-              </button>
-            ))}
-          </div>
-          <button type="button" onClick={onExit}>
+          <button type="button" className="secondary" onClick={onExit}>
             New review
           </button>
         </div>
       </header>
       <div className="columns">
-        <StepsList steps={steps} currentIndex={index} onSelect={setIndex} />
+        <StepsList
+          steps={steps}
+          files={files}
+          currentIndex={index}
+          seen={seen}
+          onSelect={setIndex}
+        />
         <main className="code-column">
-          <CodePane step={step} files={files} target={target} mode={mode} />
+          <div className="code-toolbar">
+            <FileBar segments={step.segments} onJump={jumpTo} />
+            <div className="toggle" role="group" aria-label="Code view">
+              {(['diff', 'plain'] as const).map((m) => (
+                <button
+                  key={m}
+                  type="button"
+                  aria-pressed={mode === m}
+                  className={mode === m ? 'active' : undefined}
+                  onClick={() => setMode(m)}
+                >
+                  {m === 'diff' ? 'Diff' : 'Plain'}
+                </button>
+              ))}
+            </div>
+          </div>
+          <div className="code-scroll" ref={codeRef}>
+            <CodePane step={step} files={files} target={target} mode={mode} />
+          </div>
         </main>
         <aside className="right-column">
           <ExplanationPanel

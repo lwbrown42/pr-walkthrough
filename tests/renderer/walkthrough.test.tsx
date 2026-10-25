@@ -13,6 +13,13 @@ vi.mock('../../src/renderer/src/components/ChatPanel', () => ({
 }))
 
 afterEach(cleanup)
+vi.stubGlobal(
+  'ResizeObserver',
+  class {
+    observe = vi.fn()
+    disconnect = vi.fn()
+  }
+)
 
 const reviewUsage = {
   runs: 2,
@@ -86,7 +93,7 @@ describe('Walkthrough screen', () => {
   it('labels a detour 1a, marks it in the list, and names its main step', async () => {
     setup()
     const detour = screen.getByRole('button', { name: /Title 2/ })
-    expect(detour.textContent).toContain('1a.')
+    expect(detour.textContent).toMatch(/^1a/)
     expect(detour.getAttribute('data-detour')).toBe('true')
     expect(screen.getByRole('button', { name: /Title 3/ }).getAttribute('data-detour')).toBeNull()
     await userEvent.click(detour)
@@ -141,6 +148,23 @@ describe('Walkthrough screen', () => {
     expect(screen.getByTestId('code-pane').textContent).toBe('mode:plain')
     await userEvent.click(screen.getByRole('button', { name: 'Diff' }))
     expect(screen.getByTestId('code-pane').textContent).toBe('mode:diff')
+  })
+
+  it('ticks steps already opened, but not the current one', async () => {
+    setup()
+    await userEvent.click(screen.getByRole('button', { name: /Title 3/ }))
+    expect(screen.getByRole('button', { name: /Title 1/ }).textContent).toBe('1Title 1')
+    expect(screen.getByRole('button', { name: /Title 1/ }).querySelector('.step-seen')).toBeTruthy()
+    expect(screen.getByRole('button', { name: /Title 3/ }).querySelector('.step-seen')).toBeNull()
+    expect(screen.getByRole('button', { name: /Title 4/ }).querySelector('.step-seen')).toBeNull()
+  })
+
+  it('starts each step at the top of its code', async () => {
+    setup()
+    const scroller = document.querySelector('.code-scroll') as HTMLElement
+    scroller.scrollTop = 200
+    await userEvent.keyboard('j')
+    expect(scroller.scrollTop).toBe(0)
   })
 
   it('New review calls onExit', async () => {

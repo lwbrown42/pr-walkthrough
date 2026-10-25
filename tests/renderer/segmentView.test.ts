@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest'
 import {
   describeSegment,
   headToBase,
+  segmentLabels,
   segmentWindow,
   sliceLines
 } from '../../src/renderer/src/components/segmentView'
@@ -25,12 +26,12 @@ const file = (extra: Partial<ChangedFile> = {}): ChangedFile => ({
 })
 
 describe('describeSegment', () => {
-  it('context is plain head with the unchanged label, in either mode', () => {
+  it('context is plain head in either mode', () => {
     for (const mode of ['diff', 'plain'] as const) {
       expect(describeSegment(seg('context'), file(), mode)).toEqual({
         editor: 'plain',
         sha: 'head',
-        label: 'a.ts · unchanged · context'
+        label: 'a.ts'
       })
     }
   })
@@ -51,13 +52,15 @@ describe('describeSegment', () => {
       editor: 'diff',
       sha: 'both'
     })
+  })
+  it('added and deleted files are plain even in diff mode', () => {
     expect(describeSegment(seg('change'), file({ status: 'added' }), 'diff')).toMatchObject({
-      editor: 'diff',
-      sha: 'both'
+      editor: 'plain',
+      sha: 'head'
     })
     expect(describeSegment(seg('change'), file({ status: 'deleted' }), 'diff')).toMatchObject({
-      editor: 'diff',
-      sha: 'both'
+      editor: 'plain',
+      sha: 'base'
     })
   })
   it('binary files get a placeholder', () => {
@@ -138,7 +141,7 @@ describe('segmentWindow', () => {
     })
     const w = segmentWindow(changed(50, 52), f, describeSegment(changed(50, 52), f, 'diff'), totals)
     expect(w.head).toEqual({ start: 47, end: 55 })
-    expect(w.base).toEqual({ start: 1, end: 0 })
+    expect(w.base).toBeUndefined()
   })
 
   it('uses base lines for a deleted file', () => {
@@ -148,7 +151,7 @@ describe('segmentWindow', () => {
       base: 50
     })
     expect(w.base).toEqual({ start: 7, end: 15 })
-    expect(w.head).toEqual({ start: 1, end: 0 })
+    expect(w.head).toBeUndefined()
   })
 
   it('context segments get buffer but no hunk widening', () => {
@@ -162,5 +165,26 @@ describe('sliceLines', () => {
   it('returns the inclusive range, or empty for an empty range', () => {
     expect(sliceLines('a\nb\nc\nd', { start: 2, end: 3 })).toBe('b\nc')
     expect(sliceLines('a\nb', { start: 1, end: 0 })).toBe('')
+  })
+})
+
+describe('segmentLabels', () => {
+  const s = (path: string, startLine = 1, kind: CodeSegment['kind'] = 'change'): CodeSegment => ({
+    kind,
+    path,
+    startLine,
+    endLine: startLine
+  })
+  it('uses the file name, adding the folder only when names clash', () => {
+    expect(segmentLabels([s('src/a/index.ts'), s('src/b/index.ts'), s('src/c/util.ts')])).toEqual([
+      'a/index.ts',
+      'b/index.ts',
+      'util.ts'
+    ])
+  })
+  it('adds the start line when one file has several segments, and marks context', () => {
+    expect(segmentLabels([s('App.tsx', 1), s('App.tsx', 40), s('App.tsx', 60, 'context')])).toEqual(
+      ['App.tsx:1', 'App.tsx:40', 'App.tsx (context)']
+    )
   })
 })

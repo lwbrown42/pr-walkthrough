@@ -27,6 +27,16 @@ for (const d of [monaco.css.cssDefaults, monaco.css.scssDefaults, monaco.css.les
   d.setOptions({ ...d.options, validate: false })
 }
 
+// vs-dark's grey background shows as a slab on the app's dark background; match --bg instead.
+monaco.editor.defineTheme('review-dark', {
+  base: 'vs-dark',
+  inherit: true,
+  rules: [],
+  colors: { 'editor.background': '#0d1117', 'editorGutter.background': '#0d1117' }
+})
+
+export const themeFor = (dark: boolean): string => (dark ? 'review-dark' : 'vs')
+
 const EXT_LANG: Record<string, string> = {
   ts: 'typescript',
   tsx: 'typescript',

@@ -4,7 +4,8 @@ import { useEffect, useMemo, useRef, useState } from 'react'
 import type { ChangedFile, ReviewTarget } from '../../../shared/types'
 import type { CodeSegment, Step } from '../../../shared/walkthrough'
 import '../monacoSetup'
-import { languageFor } from '../monacoSetup'
+import InlineCode from './InlineCode'
+import { languageFor, themeFor } from '../monacoSetup'
 import { describeSegment, segmentWindow, sliceLines, type LineRange } from './segmentView'
 
 interface Props {
@@ -45,10 +46,15 @@ const OPTIONS: Monaco.editor.IStandaloneEditorConstructionOptions = {
   automaticLayout: true,
   lineHeight: LINE_HEIGHT,
   renderLineHighlight: 'none',
-  domReadOnly: true
+  domReadOnly: true,
+  // Review chrome only: no overview ruler or code-action lightbulb.
+  overviewRulerLanes: 0,
+  hideCursorInOverviewRuler: true,
+  lightbulb: { enabled: 'off' as Monaco.editor.ShowLightbulbIconMode }
 }
 
 function SegmentView({
+  id,
   seg,
   file,
   mode,
@@ -56,6 +62,7 @@ function SegmentView({
   load,
   dark
 }: {
+  id: string
   seg: CodeSegment
   file: ChangedFile | undefined
   mode: 'diff' | 'plain'
@@ -74,10 +81,9 @@ function SegmentView({
   useEffect(() => {
     if (view.editor === 'binary') return
     let cancelled = false
-    const head = (): Promise<string | null> =>
-      status === 'deleted' ? Promise.resolve('') : load(target.headSha, seg.path)
-    const base = (): Promise<string | null> =>
-      status === 'added' ? Promise.resolve('') : load(target.baseSha, basePath)
+    // Added and deleted files are always plain, so only one side is ever loaded for them.
+    const head = (): Promise<string | null> => load(target.headSha, seg.path)
+    const base = (): Promise<string | null> => load(target.baseSha, basePath)
     const jobs =
       view.sha === 'both'
         ? Promise.all([base(), head()])
@@ -97,9 +103,10 @@ function SegmentView({
     return () => {
       cancelled = true
     }
-  }, [view.editor, view.sha, status, seg.path, basePath, target.headSha, target.baseSha, load])
+  }, [view.editor, view.sha, seg.path, basePath, target.headSha, target.baseSha, load])
 
   const [extra, setExtra] = useState({ above: 0, below: 0 })
+  const [open, setOpen] = useState(true)
   const [height, setHeight] = useState(8 * LINE_HEIGHT)
 
   const loaded = typeof text === 'object' && text !== null ? text : null
@@ -116,9 +123,8 @@ function SegmentView({
   const plainRange: LineRange | undefined = win ? (win.head ?? win.base) : undefined
   const headRange = win?.head ?? { start: 1, end: 0 }
   const baseRange = win?.base ?? { start: 1, end: 0 }
-  // The editor that holds the segment's own lines, and where its slice starts.
-  const ownStart =
-    view.editor === 'diff' && status === 'deleted' ? baseRange.start : (plainRange?.start ?? 1)
+  // Where the slice holding the segment's own lines starts.
+  const ownStart = plainRange?.start ?? headRange.start
 
   // Mark the segment's own lines (shifted into the slice).
   useEffect(() => {
@@ -152,7 +158,7 @@ function SegmentView({
   /** Line numbers that match the real file, not the slice. */
   const numbersFrom = (start: number) => (n: number) => String(n + start - 1)
 
-  const theme = dark ? 'vs-dark' : 'vs'
+  const theme = themeFor(dark)
   const language = languageFor(seg.path)
 
   let body: React.JSX.Element
@@ -174,6 +180,7 @@ function SegmentView({
           ...OPTIONS,
           renderSideBySide: false,
           originalEditable: false,
+          renderOverviewRuler: false,
           // Long unchanged runs inside the window fold into "N hidden lines" bars.
           hideUnchangedRegions: { enabled: true, contextLineCount: 3, minimumLineCount: 6 }
         }}
@@ -182,7 +189,7 @@ function SegmentView({
           const modified = ed.getModifiedEditor()
           original.updateOptions({ lineNumbers: numbersFrom(baseRange.start) })
           modified.updateOptions({ lineNumbers: numbersFrom(headRange.start) })
-          editorRef.current = status === 'deleted' ? original : modified
+          editorRef.current = modified
           fitHeight(modified)
           setReady((n) => n + 1)
         }}
@@ -208,26 +215,55 @@ function SegmentView({
   const expand = (side: 'above' | 'below'): void =>
     setExtra((e) => ({ ...e, [side]: e[side] + EXPAND_STEP }))
 
+  const context = seg.kind === 'context'
   return (
-    <section className={`segment segment-${seg.kind}`} data-editor={view.editor}>
+    <section id={id} className={`segment segment-${seg.kind}`} data-editor={view.editor}>
       <header className="segment-header">
-        <span className="segment-label">{view.label}</span>
-        <span className="segment-range">
-          {' '}
-          lines {seg.startLine}–{seg.endLine}
-        </span>
-        {seg.note && <p className="segment-note">{seg.note}</p>}
+        <div className="segment-title">
+          <button
+            type="button"
+            className="segment-fold"
+            aria-expanded={open}
+            aria-label={open ? 'Collapse code' : 'Expand code'}
+            onClick={() => setOpen((o) => !o)}
+          >
+            {open ? '▾' : '▸'}
+          </button>
+          <span className={`badge${context ? '' : ' badge-changed'}`}>
+            {context
+              ? 'Context'
+              : status === 'added'
+                ? 'New file'
+                : status === 'deleted'
+                  ? 'Deleted file'
+                  : 'Changed'}
+          </span>
+          <span className="segment-label">{seg.path}</span>
+          <span className="segment-range">
+            {seg.startLine}–{seg.endLine}
+            {context && ' · not changed in this PR'}
+          </span>
+        </div>
+        {seg.note && (
+          <p className="segment-note">
+            <InlineCode text={seg.note} />
+          </p>
+        )}
       </header>
-      {win?.moreAbove && (
-        <button type="button" className="segment-expand" onClick={() => expand('above')}>
-          ↑ Show {EXPAND_STEP} more lines
-        </button>
-      )}
-      {body}
-      {win?.moreBelow && (
-        <button type="button" className="segment-expand" onClick={() => expand('below')}>
-          ↓ Show {EXPAND_STEP} more lines
-        </button>
+      {open && (
+        <>
+          {win?.moreAbove && (
+            <button type="button" className="segment-expand" onClick={() => expand('above')}>
+              ↑ Show {EXPAND_STEP} more lines
+            </button>
+          )}
+          {body}
+          {win?.moreBelow && (
+            <button type="button" className="segment-expand" onClick={() => expand('below')}>
+              ↓ Show {EXPAND_STEP} more lines
+            </button>
+          )}
+        </>
       )}
     </section>
   )
@@ -252,7 +288,9 @@ export default function CodePane({ step, files, target, mode }: Props): React.JS
     <div className="code-pane" data-mode={mode}>
       {step.segments.map((seg, i) => (
         <SegmentView
-          key={i}
+          // Keyed by step so window, height and loaded text never carry over to the next step.
+          key={`${step.id}:${i}`}
+          id={`segment-${i}`}
           seg={seg}
           file={files.find((f) => f.path === seg.path)}
           mode={mode}
