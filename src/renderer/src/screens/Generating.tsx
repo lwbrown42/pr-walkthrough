@@ -160,8 +160,7 @@ export default function Generating({
         </span>
       </div>
 
-      <div className="row between">
-        <span className="muted">Steps appear here as they&apos;re written.</span>
+      <div className="row generating-actions">
         <button
           type="button"
           disabled={cancelling}

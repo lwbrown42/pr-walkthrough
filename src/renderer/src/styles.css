@@ -762,3 +762,6 @@ button.link {
   color: var(--fg);
   font-weight: 600;
 }
+.generating-actions {
+  justify-content: flex-end;
+}
