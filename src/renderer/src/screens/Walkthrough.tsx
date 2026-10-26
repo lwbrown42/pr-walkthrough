@@ -1,4 +1,12 @@
 import { useEffect, useRef, useState } from 'react'
+import {
+  hasNewCommits,
+  SAVE_DEBOUNCE_MS,
+  UPDATE_CHECK_INTERVAL_MS,
+  type ReviewState,
+  type ReviewUpdate,
+  type SavedReview
+} from '../../../shared/reviews'
 import type { ChatMessage } from '../../../shared/types'
 import { labelSteps } from '../../../shared/stepLabels'
 import type { Walkthrough as WalkthroughData } from '../../../shared/walkthrough'
@@ -11,7 +19,18 @@ import Usage from './Usage'
 
 interface Props {
   walkthrough: WalkthroughData
+  /** The saved review being read. Without it (the fixture) nothing is saved or checked. */
+  review?: SavedReview
+  /** An error line shown in the banner slot, e.g. "Regenerate failed: …". */
+  notice?: string
   onExit: () => void
+  onRegenerate?: (review: SavedReview) => void
+}
+
+function commitsLabel(count: number | null | undefined): string {
+  if (count === 1) return '1 new commit since this walkthrough'
+  if (count) return `${count} new commits since this walkthrough`
+  return 'New commits since this walkthrough'
 }
 
 function isTextTarget(t: EventTarget | null): boolean {
@@ -19,18 +38,94 @@ function isTextTarget(t: EventTarget | null): boolean {
   return t.tagName === 'INPUT' || t.tagName === 'TEXTAREA' || t.isContentEditable
 }
 
-export default function Walkthrough({ walkthrough, onExit }: Props): React.JSX.Element {
+export default function Walkthrough({
+  walkthrough,
+  review,
+  notice,
+  onExit,
+  onRegenerate
+}: Props): React.JSX.Element {
   const { steps, target, files } = walkthrough
-  const [index, setIndex] = useState(0)
-  const [messages, setMessages] = useState<ChatMessage[]>([])
-  const [mode, setMode] = useState<'diff' | 'plain'>('diff')
+  const saved = review?.state
+  const reviewId = review?.id
+  const [index, setIndex] = useState(() =>
+    Math.min(Math.max(saved?.index ?? 0, 0), Math.max(steps.length - 1, 0))
+  )
+  const [messages, setMessages] = useState<ChatMessage[]>(() => saved?.messages ?? [])
+  const [mode, setMode] = useState<'diff' | 'plain'>(() => saved?.mode ?? 'diff')
   const [usageOpen, setUsageOpen] = useState(false)
   const [reviewCost, setReviewCost] = useState<number>()
-  const [seen, setSeen] = useState<ReadonlySet<number>>(() => new Set([0]))
+  const [seen, setSeen] = useState<ReadonlySet<number>>(() => new Set(saved?.seen ?? [0]))
+  const [update, setUpdate] = useState<ReviewUpdate>()
+  const [confirming, setConfirming] = useState(false)
   const codeRef = useRef<HTMLDivElement>(null)
 
   // A step counts as seen once opened (set during render, so no extra effect pass).
   if (!seen.has(index)) setSeen(new Set(seen).add(index))
+
+  // Autosave. Refs let the debounced and unmount saves see the latest state.
+  const latest = useRef<ReviewState>({ index, seen: [...seen], mode, messages })
+  const pending = useRef<ReturnType<typeof setTimeout>>(undefined)
+  const lastPosition = useRef({ index, seen, mode })
+  const lastMessages = useRef(messages)
+  const saver = useRef({
+    now(): void {
+      clearTimeout(pending.current)
+      pending.current = undefined
+      if (reviewId === undefined) return
+      window.api.saveReviewState({ id: reviewId, state: latest.current }).catch(() => {})
+    },
+    flush(): void {
+      if (pending.current !== undefined) this.now()
+    }
+  })
+
+  useEffect(() => {
+    latest.current = { index, seen: [...seen], mode, messages }
+  })
+
+  useEffect(() => {
+    const last = lastPosition.current
+    if (last.index === index && last.seen === seen && last.mode === mode) return
+    lastPosition.current = { index, seen, mode }
+    if (reviewId === undefined) return
+    clearTimeout(pending.current)
+    pending.current = setTimeout(() => saver.current.now(), SAVE_DEBOUNCE_MS)
+  }, [index, seen, mode, reviewId])
+
+  useEffect(() => {
+    if (lastMessages.current === messages) return
+    lastMessages.current = messages
+    saver.current.now()
+  }, [messages])
+
+  useEffect(() => {
+    const s = saver.current
+    return () => s.flush()
+  }, [])
+
+  // Update checks: on open and every few minutes. Failures are silent.
+  useEffect(() => {
+    if (reviewId === undefined) return
+    let cancelled = false
+    const check = (): void => {
+      window.api
+        .checkReviewUpdates(reviewId)
+        .then((u) => !cancelled && u && setUpdate(u))
+        .catch(() => {})
+    }
+    check()
+    const timer = setInterval(check, UPDATE_CHECK_INTERVAL_MS)
+    return () => {
+      cancelled = true
+      clearInterval(timer)
+    }
+  }, [reviewId])
+
+  const moved = update
+    ? update.latestHeadSha !== target.headSha
+    : review !== undefined && hasNewCommits(review)
+  const commitCount = update ? update.newCommits : review?.update?.newCommits
 
   // Each step starts at the top of its code.
   useEffect(() => {
@@ -90,6 +185,41 @@ export default function Walkthrough({ walkthrough, onExit }: Props): React.JSX.E
           </button>
         </div>
       </header>
+      {notice && (
+        <div className="banner banner-error" role="alert">
+          {notice}
+        </div>
+      )}
+      {moved && review && (
+        <div className="banner">
+          {confirming ? (
+            <>
+              <span>Regenerate? This replaces the current walkthrough and its chat.</span>
+              <button
+                type="button"
+                onClick={() => {
+                  saver.current.flush()
+                  onRegenerate?.(review)
+                }}
+              >
+                Regenerate
+              </button>
+              <button type="button" className="secondary" onClick={() => setConfirming(false)}>
+                Cancel
+              </button>
+            </>
+          ) : (
+            <>
+              <span>{commitsLabel(commitCount)}</span>
+              {onRegenerate && (
+                <button type="button" className="link" onClick={() => setConfirming(true)}>
+                  Regenerate
+                </button>
+              )}
+            </>
+          )}
+        </div>
+      )}
       <div className="columns">
         <StepsList
           steps={steps}

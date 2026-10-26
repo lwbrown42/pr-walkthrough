@@ -1,15 +1,35 @@
-import { cleanup, render, screen } from '@testing-library/react'
+import { act, cleanup, fireEvent, render, screen } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import type { PreloadApi } from '../../src/shared/api'
 import Walkthrough from '../../src/renderer/src/screens/Walkthrough'
+import type { ReviewUpdate, SavedReview } from '../../src/shared/reviews'
 import type { Walkthrough as W } from '../../src/shared/walkthrough'
 
 vi.mock('../../src/renderer/src/components/CodePane', () => ({
   default: ({ mode }: { mode: string }) => <div data-testid="code-pane">mode:{mode}</div>
 }))
 vi.mock('../../src/renderer/src/components/ChatPanel', () => ({
-  default: () => <input aria-label="chat input" />
+  default: ({
+    messages,
+    onAppend
+  }: {
+    messages: { id: string; text: string }[]
+    onAppend: (m: object) => void
+  }) => (
+    <div>
+      <input aria-label="chat input" />
+      {messages.map((m) => (
+        <p key={m.id}>{m.text}</p>
+      ))}
+      <button
+        type="button"
+        onClick={() => onAppend({ id: 'new', stepId: 's1', role: 'user', text: 'Why?' })}
+      >
+        Ask
+      </button>
+    </div>
+  )
 }))
 
 afterEach(cleanup)
@@ -26,11 +46,18 @@ const reviewUsage = {
   costUsd: 1.32,
   tokens: { input: 1, output: 2, cacheRead: 3, cacheCreation: 4 }
 }
-let api: { getReviewUsage: ReturnType<typeof vi.fn>; getRunLog: ReturnType<typeof vi.fn> }
+let api: {
+  getReviewUsage: ReturnType<typeof vi.fn>
+  getRunLog: ReturnType<typeof vi.fn>
+  saveReviewState: ReturnType<typeof vi.fn>
+  checkReviewUpdates: ReturnType<typeof vi.fn>
+}
 beforeEach(() => {
   api = {
     getReviewUsage: vi.fn().mockResolvedValue(reviewUsage),
-    getRunLog: vi.fn().mockResolvedValue([])
+    getRunLog: vi.fn().mockResolvedValue([]),
+    saveReviewState: vi.fn().mockResolvedValue(undefined),
+    checkReviewUpdates: vi.fn().mockResolvedValue(null)
   }
   window.api = api as unknown as PreloadApi
 })
@@ -200,5 +227,192 @@ describe('usage during a review', () => {
     await user.click(screen.getByRole('button', { name: 'Usage' }))
     await user.click(await screen.findByRole('button', { name: 'Close' }))
     expect(screen.queryByRole('dialog')).toBeNull()
+  })
+})
+
+function makeReview(over: Partial<SavedReview> = {}): SavedReview {
+  return {
+    id: 'r1',
+    key: 'k',
+    walkthrough: wt,
+    state: { index: 0, seen: [0], mode: 'diff', messages: [] },
+    createdAt: '2026-10-20T00:00:00.000Z',
+    generatedAt: '2026-10-20T00:00:00.000Z',
+    lastOpenedAt: '2026-10-20T00:00:00.000Z',
+    costUsd: 1,
+    ...over
+  }
+}
+
+const update = (latestHeadSha: string, newCommits: number | null): ReviewUpdate => ({
+  latestHeadSha,
+  newCommits,
+  checkedAt: '2026-10-26T00:00:00.000Z'
+})
+
+describe('saved review', () => {
+  afterEach(() => vi.useRealTimers())
+
+  it('restores index, mode and messages from review.state', () => {
+    const review = makeReview({
+      state: {
+        index: 2,
+        seen: [0, 1, 2],
+        mode: 'plain',
+        messages: [{ id: 'm1', stepId: 's1', role: 'user', text: 'Earlier question' }]
+      }
+    })
+    render(<Walkthrough walkthrough={wt} review={review} onExit={vi.fn()} />)
+    expect(screen.getByText(/^Step 2 of 3/)).toBeTruthy()
+    expect(screen.getByTestId('code-pane').textContent).toBe('mode:plain')
+    expect(screen.getByText('Earlier question')).toBeTruthy()
+    expect(screen.getByRole('button', { name: /Title 2/ }).querySelector('.step-seen')).toBeTruthy()
+  })
+
+  it('clamps a restored index that is out of range', () => {
+    const review = makeReview({ state: { index: 9, seen: [], mode: 'diff', messages: [] } })
+    render(<Walkthrough walkthrough={wt} review={review} onExit={vi.fn()} />)
+    expect(screen.getByText(/^Step 3 of 3/)).toBeTruthy()
+  })
+
+  it('saves position once after rapid j presses (debounced)', () => {
+    vi.useFakeTimers()
+    render(<Walkthrough walkthrough={wt} review={makeReview()} onExit={vi.fn()} />)
+    for (let i = 0; i < 3; i++) fireEvent.keyDown(window, { key: 'j' })
+    act(() => vi.advanceTimersByTime(499))
+    expect(api.saveReviewState).not.toHaveBeenCalled()
+    act(() => vi.advanceTimersByTime(1))
+    expect(api.saveReviewState).toHaveBeenCalledTimes(1)
+    expect(api.saveReviewState).toHaveBeenCalledWith({
+      id: 'r1',
+      state: { index: 3, seen: [0, 1, 2, 3], mode: 'diff', messages: [] }
+    })
+  })
+
+  it('flushes a pending save on unmount', () => {
+    vi.useFakeTimers()
+    const { unmount } = render(
+      <Walkthrough walkthrough={wt} review={makeReview()} onExit={vi.fn()} />
+    )
+    fireEvent.keyDown(window, { key: 'j' })
+    fireEvent.click(screen.getByRole('button', { name: 'Plain' }))
+    unmount()
+    expect(api.saveReviewState).toHaveBeenCalledTimes(1)
+    expect(api.saveReviewState).toHaveBeenCalledWith({
+      id: 'r1',
+      state: { index: 1, seen: [0, 1], mode: 'plain', messages: [] }
+    })
+    act(() => vi.advanceTimersByTime(1000))
+    expect(api.saveReviewState).toHaveBeenCalledTimes(1)
+  })
+
+  it('saves chat messages immediately, with the current position', async () => {
+    render(<Walkthrough walkthrough={wt} review={makeReview()} onExit={vi.fn()} />)
+    await userEvent.click(screen.getByRole('button', { name: 'Ask' }))
+    expect(api.saveReviewState).toHaveBeenCalledWith({
+      id: 'r1',
+      state: {
+        index: 0,
+        seen: [0],
+        mode: 'diff',
+        messages: [{ id: 'new', stepId: 's1', role: 'user', text: 'Why?' }]
+      }
+    })
+  })
+
+  it('does not save on mount', () => {
+    vi.useFakeTimers()
+    render(<Walkthrough walkthrough={wt} review={makeReview()} onExit={vi.fn()} />)
+    act(() => vi.advanceTimersByTime(1000))
+    expect(api.saveReviewState).not.toHaveBeenCalled()
+  })
+
+  it('shows the banner when checkReviewUpdates reports a new head', async () => {
+    api.checkReviewUpdates.mockResolvedValue(update('c', 2))
+    render(<Walkthrough walkthrough={wt} review={makeReview()} onExit={vi.fn()} />)
+    expect(await screen.findByText('2 new commits since this walkthrough')).toBeTruthy()
+    expect(api.checkReviewUpdates).toHaveBeenCalledWith('r1')
+  })
+
+  it('shows no banner when the head is unchanged', async () => {
+    api.checkReviewUpdates.mockResolvedValue(update('b', 0))
+    render(<Walkthrough walkthrough={wt} review={makeReview()} onExit={vi.fn()} />)
+    await act(async () => {})
+    expect(screen.queryByText(/since this walkthrough/)).toBeNull()
+  })
+
+  it('shows the banner from the saved update before any check, singular for one commit', () => {
+    render(
+      <Walkthrough
+        walkthrough={wt}
+        review={makeReview({ update: update('c', 1) })}
+        onExit={vi.fn()}
+      />
+    )
+    expect(screen.getByText('1 new commit since this walkthrough')).toBeTruthy()
+  })
+
+  it('says "New commits" when the head moved but the count is 0 or unknown', async () => {
+    api.checkReviewUpdates.mockResolvedValue(update('c', 0))
+    render(
+      <Walkthrough
+        walkthrough={wt}
+        review={makeReview({ update: update('c', null) })}
+        onExit={vi.fn()}
+      />
+    )
+    expect(screen.getByText('New commits since this walkthrough')).toBeTruthy()
+    await act(async () => {})
+    expect(screen.getByText('New commits since this walkthrough')).toBeTruthy()
+  })
+
+  it('checks for updates again every 5 minutes', async () => {
+    vi.useFakeTimers()
+    render(<Walkthrough walkthrough={wt} review={makeReview()} onExit={vi.fn()} />)
+    expect(api.checkReviewUpdates).toHaveBeenCalledTimes(1)
+    await act(async () => vi.advanceTimersByTime(5 * 60_000))
+    expect(api.checkReviewUpdates).toHaveBeenCalledTimes(2)
+  })
+
+  it('Regenerate asks to confirm and then calls onRegenerate', async () => {
+    const onRegenerate = vi.fn()
+    const review = makeReview({ update: update('c', 2) })
+    render(
+      <Walkthrough walkthrough={wt} review={review} onExit={vi.fn()} onRegenerate={onRegenerate} />
+    )
+    const user = userEvent.setup()
+    await user.click(screen.getByRole('button', { name: 'Regenerate' }))
+    expect(onRegenerate).not.toHaveBeenCalled()
+    expect(
+      screen.getByText('Regenerate? This replaces the current walkthrough and its chat.')
+    ).toBeTruthy()
+    await user.click(screen.getByRole('button', { name: 'Cancel' }))
+    expect(screen.getByText('2 new commits since this walkthrough')).toBeTruthy()
+    await user.click(screen.getByRole('button', { name: 'Regenerate' }))
+    await user.click(screen.getByRole('button', { name: 'Regenerate' }))
+    expect(onRegenerate).toHaveBeenCalledWith(review)
+  })
+
+  it('shows a notice in the banner slot', () => {
+    render(
+      <Walkthrough
+        walkthrough={wt}
+        review={makeReview()}
+        notice="Regenerate failed: boom"
+        onExit={vi.fn()}
+      />
+    )
+    expect(screen.getByRole('alert').textContent).toContain('Regenerate failed: boom')
+  })
+
+  it('no saves without a review (fixture)', async () => {
+    vi.useFakeTimers()
+    setup()
+    fireEvent.keyDown(window, { key: 'j' })
+    fireEvent.click(screen.getByRole('button', { name: 'Ask' }))
+    act(() => vi.advanceTimersByTime(1000))
+    cleanup()
+    expect(api.saveReviewState).not.toHaveBeenCalled()
+    expect(api.checkReviewUpdates).not.toHaveBeenCalled()
   })
 })

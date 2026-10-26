@@ -875,3 +875,19 @@ button.review-trash:focus-visible {
   border-radius: 6px;
   padding: 8px 14px;
 }
+
+/* Walkthrough banner: new commits, regenerate confirm, notices */
+.banner {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 6px 16px;
+  font-size: 14px;
+  background: var(--warn-bg);
+  color: var(--warn-fg);
+  border-bottom: 1px solid var(--border);
+}
+.banner-error {
+  background: var(--error-bg);
+  color: var(--error-fg);
+}

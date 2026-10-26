@@ -46,6 +46,7 @@ beforeEach(() => {
     listReviews: vi.fn().mockResolvedValue([]),
     checkReviewUpdates: vi.fn().mockResolvedValue(null),
     reopenReview: vi.fn(),
+    saveReviewState: vi.fn().mockResolvedValue(undefined),
     deleteReview: vi.fn(),
     restoreReview: vi.fn().mockResolvedValue(undefined),
     getFixture: vi.fn().mockResolvedValue(null),
@@ -120,7 +121,9 @@ describe('screens', () => {
         files: [],
         changedLines: 2000,
         sessionId: 'x'
-      }
+      },
+      state: { index: 0, seen: [0], mode: 'diff', messages: [] },
+      generatedAt: '2026-10-26T00:00:00.000Z'
     })
     const user = userEvent.setup()
     render(<App />)
@@ -209,6 +212,49 @@ describe('screens', () => {
     expect(await screen.findByText('Open a change')).toBeTruthy()
     expect(screen.queryByRole('alert')).toBeNull()
     expect(screen.getByRole('button', { name: 'Generate' })).toBeTruthy()
+  })
+
+  it('Open offers Reopen saved review and Generate a new one when opened.saved is set', async () => {
+    const lastOpenedAt = new Date(Date.now() - 2 * 24 * 60 * 60 * 1000).toISOString()
+    api.openTarget.mockResolvedValue({
+      ...opened(2000, true),
+      saved: { id: 'r9', progress: 'step 4 of 9', lastOpenedAt, newCommits: 2 }
+    })
+    api.reopenReview.mockResolvedValue({ error: { message: 'gone' } })
+    api.generate.mockReturnValue(new Promise(() => {}))
+    const user = userEvent.setup()
+    render(<App />)
+    await openLocal(user)
+    expect(
+      await screen.findByText(
+        'You have a saved review of this PR (step 4 of 9, 2 days ago) · 2 new commits since'
+      )
+    ).toBeTruthy()
+    expect(screen.getByText(/above the 1,300 line limit/)).toBeTruthy()
+    expect(screen.queryByRole('button', { name: 'Generate' })).toBeNull()
+    await user.click(screen.getByRole('button', { name: 'Reopen saved review' }))
+    expect(api.reopenReview).toHaveBeenCalledWith('r9')
+    await openLocal(user)
+    await user.click(await screen.findByRole('button', { name: 'Generate a new one' }))
+    expect(api.generate).toHaveBeenCalledWith(target)
+  })
+
+  it('Open adds nothing to the saved-review prompt when there are no new commits', async () => {
+    api.openTarget.mockResolvedValue({
+      ...opened(10, false),
+      saved: {
+        id: 'r9',
+        progress: 'step 1 of 2',
+        lastOpenedAt: new Date().toISOString(),
+        newCommits: 0
+      }
+    })
+    const user = userEvent.setup()
+    render(<App />)
+    await openLocal(user)
+    expect(
+      await screen.findByText('You have a saved review of this PR (step 1 of 2, just now)')
+    ).toBeTruthy()
   })
 
   it('clears the opened target when inputs change or tabs switch', async () => {

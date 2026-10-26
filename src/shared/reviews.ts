@@ -155,3 +155,9 @@ export function openRequestFor(target: ReviewTarget): OpenRequest {
 
 /** How many update checks the reviews list runs at once. */
 export const LIST_CHECK_CONCURRENCY = 2
+
+/** How long the walkthrough waits after the last position change before saving it. */
+export const SAVE_DEBOUNCE_MS = 500
+
+/** How often an open review checks its branch for new commits. */
+export const UPDATE_CHECK_INTERVAL_MS = 5 * 60_000

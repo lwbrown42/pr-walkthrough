@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react'
 import type { OpenRequest, OpenResult } from '../../../shared/api'
 import { CHANGED_LINES_LIMIT } from '../../../shared/api'
+import { relativeTime } from '../../../shared/relativeTime'
 import type { ReviewSummary } from '../../../shared/reviews'
 import ReviewsList, { type RowError } from '../components/ReviewsList'
 import { friendlyError } from '../errors'
@@ -22,6 +23,13 @@ interface Props {
 }
 
 type Tab = 'local' | 'github'
+
+function savedPrompt(saved: NonNullable<OpenResult['saved']>): string {
+  const base = `You have a saved review of this PR (${saved.progress}, ${relativeTime(saved.lastOpenedAt, Date.now())})`
+  const n = saved.newCommits
+  if (!n) return base
+  return `${base} · ${n === 1 ? '1 new commit' : `${n} new commits`} since`
+}
 
 export default function Open(props: Props): React.JSX.Element {
   const { opened, error } = props
@@ -171,11 +179,25 @@ export default function Open(props: Props): React.JSX.Element {
               {`This PR has ${opened.changedLines} changed lines, above the ${CHANGED_LINES_LIMIT.toLocaleString('en-US')} line limit. The walkthrough may be slower or less accurate.`}
             </p>
           )}
-          <div className="row">
-            <button type="button" onClick={props.onGenerate}>
-              Generate
-            </button>
-          </div>
+          {opened.saved ? (
+            <>
+              <p>{savedPrompt(opened.saved)}</p>
+              <div className="row">
+                <button type="button" onClick={() => props.onReopen(opened.saved!.id)}>
+                  Reopen saved review
+                </button>
+                <button type="button" className="secondary" onClick={props.onGenerate}>
+                  Generate a new one
+                </button>
+              </div>
+            </>
+          ) : (
+            <div className="row">
+              <button type="button" onClick={props.onGenerate}>
+                Generate
+              </button>
+            </div>
+          )}
         </div>
       )}
 

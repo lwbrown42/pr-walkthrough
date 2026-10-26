@@ -13,8 +13,9 @@ import WalkthroughScreen from './screens/Walkthrough'
 type State =
   | { screen: 'setup' }
   | { screen: 'open'; opened?: OpenResult; error?: string; rowError?: RowError }
-  | { screen: 'generating'; opened: OpenResult }
-  | { screen: 'walkthrough'; walkthrough: WalkthroughData; review?: SavedReview }
+  /** returnTo: the review a walkthrough Regenerate came from; cancel or failure goes back to it. */
+  | { screen: 'generating'; opened: OpenResult; returnTo?: string }
+  | { screen: 'walkthrough'; walkthrough: WalkthroughData; review?: SavedReview; notice?: string }
   | { screen: 'usage' }
 
 function App(): React.JSX.Element | null {
@@ -64,6 +65,34 @@ function App(): React.JSX.Element | null {
       else setState({ screen: 'generating', opened })
     } catch (e) {
       rowFail(summary.id, { message: e instanceof Error ? e.message : String(e) })
+    }
+  }
+
+  const regenerateFromWalkthrough = async (review: SavedReview): Promise<void> => {
+    const fail = (message: string): void =>
+      setState({
+        screen: 'walkthrough',
+        walkthrough: review.walkthrough,
+        review,
+        notice: `Regenerate failed: ${message}`
+      })
+    try {
+      const opened = await window.api.openTarget(openRequestFor(review.walkthrough.target))
+      if ('error' in opened) fail(friendlyError(opened.error))
+      else setState({ screen: 'generating', opened, returnTo: review.id })
+    } catch (e) {
+      fail(e instanceof Error ? e.message : String(e))
+    }
+  }
+
+  /** Back to the review a Regenerate came from; to Open if it can't be reopened. */
+  const returnToReview = async (id: string, notice?: string): Promise<void> => {
+    try {
+      const r = await window.api.reopenReview(id)
+      if ('error' in r) setState({ screen: 'open', error: friendlyError(r.error) })
+      else setState({ screen: 'walkthrough', walkthrough: r.walkthrough, review: r, notice })
+    } catch (e) {
+      setState({ screen: 'open', error: e instanceof Error ? e.message : String(e) })
     }
   }
 
@@ -119,8 +148,16 @@ function App(): React.JSX.Element | null {
           onDone={(review) =>
             setState({ screen: 'walkthrough', walkthrough: review.walkthrough, review })
           }
-          onError={(error) => setState({ screen: 'open', opened: state.opened, error })}
-          onCancelled={() => setState({ screen: 'open', opened: state.opened })}
+          onError={(error) =>
+            state.returnTo !== undefined
+              ? void returnToReview(state.returnTo, `Regenerate failed: ${error}`)
+              : setState({ screen: 'open', opened: state.opened, error })
+          }
+          onCancelled={() =>
+            state.returnTo !== undefined
+              ? void returnToReview(state.returnTo)
+              : setState({ screen: 'open', opened: state.opened })
+          }
         />
       )
     case 'usage':
@@ -128,8 +165,12 @@ function App(): React.JSX.Element | null {
     case 'walkthrough':
       return (
         <WalkthroughScreen
+          key={state.review ? state.review.id + state.review.generatedAt : 'fixture'}
           walkthrough={state.walkthrough}
+          review={state.review}
+          notice={state.notice}
           onExit={() => setState({ screen: 'open' })}
+          onRegenerate={(review) => void regenerateFromWalkthrough(review)}
         />
       )
   }
