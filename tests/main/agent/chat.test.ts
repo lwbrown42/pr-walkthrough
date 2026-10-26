@@ -257,6 +257,13 @@ describe('buildSeededChatPrompt', () => {
     expect(p).toContain('1. Job carries the policy: Jobs carry the policy.')
     expect(p).toContain('1a. Helper detour: Line one. Line two.')
     expect(p).toContain(buildChatPrompt(detour, '1a', 'Why?'))
+    expect(p).not.toContain('<step_diff>')
+  })
+
+  it("includes the step's diff when given", () => {
+    const p = buildSeededChatPrompt(walkthrough, step, '1', 'Why?', 'diff --git a/x b/x')
+    expect(p).toContain('<step_diff>\ndiff --git a/x b/x\n</step_diff>')
+    expect(p.indexOf('<step_diff>')).toBeLessThan(p.indexOf('<question>'))
   })
 })
 
@@ -282,6 +289,22 @@ describe('askAboutStep without a session', () => {
     expect(prompt).toContain('Job carries the policy')
     expect(prompt).toContain('Helper detour')
     expect(prompt).toContain('<question>')
+  })
+
+  it('passes the step diff into the seeded prompt', async () => {
+    const q = fakeQuery([assistantText('Hi'), result()])
+    await askAboutStep({
+      sessionId: null,
+      walkthrough,
+      stepDiff: 'STEP DIFF',
+      worktreePath: '/tmp/wt',
+      step,
+      stepLabel: '1',
+      question: 'Why here?',
+      settings,
+      queryFn: q.fn
+    })
+    expect(q.calls[0].prompt).toContain('<step_diff>\nSTEP DIFF\n</step_diff>')
   })
 
   it('fails without the walkthrough', async () => {

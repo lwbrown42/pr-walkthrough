@@ -9,6 +9,8 @@ export interface AskArgs {
   sessionId: string | null
   /** Required when `sessionId` is null. */
   walkthrough?: AgentWalkthrough
+  /** For a fresh session: the diff of the step's changed files. */
+  stepDiff?: string
   worktreePath: string
   step: Step
   /** The label the reviewer sees, e.g. '2' or '1a'. */
@@ -29,7 +31,7 @@ export interface AskResult {
   tokensByModel: Record<string, TokenUsage> | null
 }
 
-/** Asks the walkthrough's agent session a question about one step; resumes that session. */
+/** Asks a question about one step, resuming the chat's session or starting one seeded from the walkthrough. */
 export async function askAboutStep(args: AskArgs): Promise<AskResult> {
   const {
     sessionId,
@@ -38,6 +40,7 @@ export async function askAboutStep(args: AskArgs): Promise<AskResult> {
     stepLabel,
     question,
     walkthrough,
+    stepDiff,
     settings,
     onText,
     queryFn = query
@@ -52,7 +55,7 @@ export async function askAboutStep(args: AskArgs): Promise<AskResult> {
   }
   const prompt =
     walkthrough && sessionId === null
-      ? buildSeededChatPrompt(walkthrough, step, stepLabel, question)
+      ? buildSeededChatPrompt(walkthrough, step, stepLabel, question, stepDiff)
       : buildChatPrompt(step, stepLabel, question)
 
   // Text of each top-level assistant message, in order; turns are joined with a blank line.

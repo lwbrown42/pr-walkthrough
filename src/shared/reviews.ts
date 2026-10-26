@@ -56,7 +56,8 @@ export const SavedReviewSchema = z.object({
     target: z.looseObject({}),
     files: z.array(z.looseObject({})),
     changedLines: z.number(),
-    sessionId: z.string()
+    sessionId: z.string(),
+    chatSessionId: z.string().optional()
   }),
   state: z.object({
     index: z.number(),

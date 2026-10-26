@@ -21,7 +21,7 @@ import {
 } from '../shared/reviews'
 import { labelSteps } from '../shared/stepLabels'
 import { summarizeRuns } from '../shared/usage'
-import type { Walkthrough } from '../shared/walkthrough'
+import type { Step, Walkthrough } from '../shared/walkthrough'
 import { askAboutStep } from './agent/chat'
 import { generateWalkthrough } from './agent/generate'
 import { AgentRunError } from './agent/options'
@@ -81,6 +81,9 @@ type RunOutcome = Pick<
   'outcome' | 'costUsd' | 'turns' | 'durationMs' | 'tokens' | 'tokensByModel'
 >
 
+/** A step diff longer than this (about 6K tokens) is left for the chat agent to read itself. */
+const STEP_DIFF_MAX_CHARS = 12_000
+
 /** At most this many `git show` processes run at once. */
 const READ_CONCURRENCY = 8
 
@@ -106,7 +109,7 @@ export function createHandlers(deps: HandlerDeps): Handlers {
   let walkthrough: Walkthrough | null = null
   /** The saved review that is open, or null (none yet, or the fixture). */
   let reviewId: string | null = null
-  /** Whether the open walkthrough's agent session is known to resume. */
+  /** Whether the open walkthrough's chat session is known to resume. */
   let sessionVerified = false
 
   async function computeLineCounts(
@@ -139,6 +142,28 @@ export function createHandlers(deps: HandlerDeps): Handlers {
       })
     await runLimited(jobs, READ_CONCURRENCY)
     return counts
+  }
+
+  /**
+   * The diff of the files a step changes, to seed a fresh chat; undefined when there are none,
+   * when it is too long to be worth sending (the agent can still read the files), or on error.
+   */
+  async function stepDiffFor(w: Walkthrough, step: Step): Promise<string | undefined> {
+    const changed = new Set(step.segments.filter((s) => s.kind === 'change').map((s) => s.path))
+    const paths = w.files
+      .filter((f) => changed.has(f.path))
+      .flatMap((f) => (f.oldPath ? [f.path, f.oldPath] : [f.path]))
+    if (paths.length === 0) return undefined
+    try {
+      const diff = await deps.runGit(w.target.worktreePath, [
+        ...promptDiffArgs(w.target.baseSha, w.target.headSha, []),
+        '--',
+        ...paths.map((p) => `:(literal)${p}`)
+      ])
+      return diff.length <= STEP_DIFF_MAX_CHARS ? diff : undefined
+    } catch {
+      return undefined
+    }
   }
 
   let generation: AbortController | null = null
@@ -361,7 +386,7 @@ export function createHandlers(deps: HandlerDeps): Handlers {
         })
         walkthrough = generated
         reviewId = id
-        sessionVerified = true
+        sessionVerified = false
         // The walkthrough is made and paid for: a failure to persist or tidy up must not
         // turn it into an error or log the run a second time.
         try {
@@ -431,27 +456,42 @@ export function createHandlers(deps: HandlerDeps): Handlers {
         if (!asked) throw new Error('No walkthrough is open.')
         const stepIndex = asked.steps.findIndex((s) => s.id === stepId)
         if (stepIndex < 0) throw new Error(`Unknown step: ${stepId}`)
-        const ask = (fresh: boolean): ReturnType<typeof deps.askAboutStep> =>
-          deps.askAboutStep({
-            sessionId: fresh ? null : asked.sessionId,
-            ...(fresh ? { walkthrough: { summary: asked.summary, steps: asked.steps } } : {}),
+        const step = asked.steps[stepIndex]
+        // Null starts a fresh session seeded from the walkthrough: much cheaper than resuming
+        // the generation's long session, whose cache a chat would rebuild in full.
+        const ask = async (resume: string | null): ReturnType<typeof deps.askAboutStep> => {
+          const seed =
+            resume === null
+              ? {
+                  walkthrough: { summary: asked.summary, steps: asked.steps },
+                  stepDiff: await stepDiffFor(asked, step)
+                }
+              : {}
+          return deps.askAboutStep({
+            sessionId: resume,
+            ...seed,
             worktreePath: asked.target.worktreePath,
-            step: asked.steps[stepIndex],
+            step,
             stepLabel: labelSteps(asked.steps).labels[stepIndex],
             question,
             settings: deps.settings.get(),
             onText: (chunk) => deps.send(IPC.chatText, chunk)
           })
+        }
         let result: Awaited<ReturnType<typeof deps.askAboutStep>>
-        try {
-          result = await ask(false)
-        } catch (err) {
-          // A stored session may not resume (e.g. after a restart): retry once in a fresh one.
-          if (!(err instanceof AgentRunError && err.reason === 'failed') || sessionVerified)
-            throw err
-          logFailure(err)
-          started = deps.now()
-          result = await ask(true)
+        if (!asked.chatSessionId) {
+          result = await ask(null)
+        } else {
+          try {
+            result = await ask(asked.chatSessionId)
+          } catch (err) {
+            // A stored session may not resume (e.g. after a restart): retry once in a fresh one.
+            if (!(err instanceof AgentRunError && err.reason === 'failed') || sessionVerified)
+              throw err
+            logFailure(err)
+            started = deps.now()
+            result = await ask(null)
+          }
         }
         entry({
           outcome: 'success',
@@ -462,18 +502,18 @@ export function createHandlers(deps: HandlerDeps): Handlers {
           tokensByModel: result.tokensByModel
         })
         if (walkthrough === asked) {
-          walkthrough = { ...asked, sessionId: result.sessionId }
+          walkthrough = { ...asked, chatSessionId: result.sessionId }
           sessionVerified = true
         }
         if (askedReviewId) {
           const review = deps.reviews.get(askedReviewId)
           if (review) {
-            // A regenerate since the question was asked owns the session now; keep its id.
+            // A regenerate since the question was asked starts its own chat; leave it be.
             const stillAsked = review.walkthrough.sessionId === asked.sessionId
             deps.reviews.save({
               ...review,
               walkthrough: stillAsked
-                ? { ...review.walkthrough, sessionId: result.sessionId }
+                ? { ...review.walkthrough, chatSessionId: result.sessionId }
                 : review.walkthrough,
               costUsd: review.costUsd + (result.costUsd ?? 0)
             })
@@ -551,7 +591,7 @@ export function createHandlers(deps: HandlerDeps): Handlers {
     },
 
     async saveReviewState({ id, state }) {
-      // Re-read so costUsd and sessionId written here since the renderer loaded it survive.
+      // Re-read so costUsd and chatSessionId written here since the renderer loaded it survive.
       const review = deps.reviews.get(id)
       if (!review) return
       // The state comes from the renderer: a malformed one would make the file unreadable.

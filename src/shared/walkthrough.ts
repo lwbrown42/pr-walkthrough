@@ -33,7 +33,10 @@ export type Walkthrough = AgentWalkthrough & {
   target: ReviewTarget
   files: ChangedFile[]
   changedLines: number
+  /** The agent session that generated the walkthrough. */
   sessionId: string
+  /** The chat's own agent session, once a question has started one. */
+  chatSessionId?: string
 }
 
 export const agentWalkthroughJsonSchema = z.toJSONSchema(AgentWalkthrough, { target: 'draft-7' })

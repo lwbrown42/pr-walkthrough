@@ -321,15 +321,69 @@ describe('generate', () => {
 })
 
 describe('ask', () => {
-  it('asks about the step, keeps the new session id, and returns an assistant message', async () => {
+  it('starts a fresh seeded chat session, then resumes it, and returns an assistant message', async () => {
     const { h, deps } = setup()
     await h.generate(target)
     const msg = await h.ask({ stepId: 's1', question: 'why?' })
     expect(msg).toMatchObject({ stepId: 's1', role: 'assistant', text: 'yes' })
     await h.ask({ stepId: 's1', question: 'again?' })
     const calls = vi.mocked(deps.askAboutStep).mock.calls
-    expect(calls[0][0]).toMatchObject({ sessionId: 'sess1', stepLabel: '1', worktreePath: '/wt' })
+    expect(calls[0][0]).toMatchObject({
+      sessionId: null,
+      walkthrough: { summary: 's', steps: [step] },
+      stepLabel: '1',
+      worktreePath: '/wt'
+    })
     expect(calls[1][0].sessionId).toBe('sess2')
+    expect(calls[1][0]).not.toHaveProperty('walkthrough')
+  })
+
+  it("seeds a fresh chat with the diff of the step's changed files", async () => {
+    const withCode: Step = {
+      ...step,
+      segments: [
+        { kind: 'change', path: 'new.ts', startLine: 1, endLine: 2 },
+        { kind: 'context', path: 'ctx.ts', startLine: 1, endLine: 2 }
+      ]
+    }
+    const files = [
+      file({ path: 'new.ts', oldPath: 'old.ts', status: 'renamed' }),
+      file({ path: 'ctx.ts' })
+    ]
+    const { h, deps } = setup(
+      {
+        generateWalkthrough: vi.fn(async () => ({
+          walkthrough: { summary: 's', steps: [withCode] },
+          sessionId: 'sess1',
+          costUsd: 0.5,
+          turns: 4,
+          durationMs: 99,
+          tokens: null,
+          tokensByModel: null
+        })),
+        runGit: vi.fn(async (_cwd: string, args: string[]) =>
+          args.includes(':(literal)new.ts') ? 'STEP DIFF' : 'DIFF'
+        )
+      },
+      files
+    )
+    await h.openTarget(local)
+    await h.generate(target)
+    await h.ask({ stepId: 's1', question: 'why?' })
+    expect(deps.runGit).toHaveBeenCalledWith('/wt', [
+      'diff',
+      '--no-ext-diff',
+      '--no-color',
+      '--src-prefix=a/',
+      '--dst-prefix=b/',
+      '-M',
+      'base',
+      'head',
+      '--',
+      ':(literal)new.ts',
+      ':(literal)old.ts'
+    ])
+    expect(vi.mocked(deps.askAboutStep).mock.calls[0][0].stepDiff).toBe('STEP DIFF')
   })
 
   it('errors without a walkthrough or for an unknown step', async () => {
@@ -731,32 +785,45 @@ describe('saved reviews', () => {
     expect(await h.openTarget(local)).toMatchObject({ saved: { newCommits: null } })
   })
 
-  it('ask persists the new sessionId and adds chat cost to the review', async () => {
+  it('ask persists the chat session and adds chat cost to the review', async () => {
     const reviews = memStore()
     const { h, log } = setup({ reviews })
     await h.generate(target)
     await h.ask({ stepId: 's1', question: 'why?' })
     const r = reviews.get('new-id')!
-    expect(r.walkthrough.sessionId).toBe('sess2')
+    expect(r.walkthrough.chatSessionId).toBe('sess2')
+    expect(r.walkthrough.sessionId).toBe('sess1')
     expect(r.costUsd).toBeCloseTo(0.6)
     expect(r.state.messages).toEqual([])
     expect(log[1].reviewId).toBe('new-id')
   })
 
   it('ask does not retry a failed resume once the session is known to work', async () => {
-    const { h, deps, log } = setup({
-      askAboutStep: vi.fn(async () => {
-        throw new AgentRunError('failed', 'no session')
+    const askAboutStep = vi
+      .fn<HandlerDeps['askAboutStep']>()
+      .mockResolvedValueOnce({
+        answer: 'yes',
+        sessionId: 'chat-sess',
+        costUsd: 0.1,
+        turns: 2,
+        durationMs: 700,
+        tokens: null,
+        tokensByModel: null
       })
-    })
+      .mockRejectedValue(new AgentRunError('failed', 'no session'))
+    const { h, log } = setup({ askAboutStep })
     await h.generate(target)
-    expect(await h.ask({ stepId: 's1', question: 'why?' })).toHaveProperty('error')
-    expect(deps.askAboutStep).toHaveBeenCalledTimes(1)
-    expect(log).toHaveLength(2)
+    await h.ask({ stepId: 's1', question: 'why?' })
+    expect(await h.ask({ stepId: 's1', question: 'again?' })).toHaveProperty('error')
+    expect(askAboutStep).toHaveBeenCalledTimes(2)
+    expect(askAboutStep.mock.calls[1][0].sessionId).toBe('chat-sess')
+    expect(log).toHaveLength(3)
   })
 
   it('ask retries once in a fresh session when resume fails', async () => {
-    const reviews = memStore([savedReview()])
+    const saved = savedReview()
+    saved.walkthrough.chatSessionId = 'old-chat'
+    const reviews = memStore([saved])
     const askAboutStep = vi
       .fn<HandlerDeps['askAboutStep']>()
       .mockRejectedValueOnce(new AgentRunError('failed', 'no session'))
@@ -773,7 +840,7 @@ describe('saved reviews', () => {
     await h.reopenReview('old-id')
     expect(await h.ask({ stepId: 's1', question: 'why?' })).toMatchObject({ text: 'yes' })
     expect(askAboutStep).toHaveBeenCalledTimes(2)
-    expect(askAboutStep.mock.calls[0][0]).toMatchObject({ sessionId: 'old-sess' })
+    expect(askAboutStep.mock.calls[0][0]).toMatchObject({ sessionId: 'old-chat' })
     expect(askAboutStep.mock.calls[0][0]).not.toHaveProperty('walkthrough')
     expect(askAboutStep.mock.calls[1][0]).toMatchObject({
       sessionId: null,
@@ -783,7 +850,7 @@ describe('saved reviews', () => {
       ['chat', 'failed', 'old-id'],
       ['chat', 'success', 'old-id']
     ])
-    expect(reviews.get('old-id')!.walkthrough.sessionId).toBe('fresh-sess')
+    expect(reviews.get('old-id')!.walkthrough.chatSessionId).toBe('fresh-sess')
   })
 })
 
@@ -826,8 +893,10 @@ describe('review handlers', () => {
     expect(deps.runGit).toHaveBeenCalledWith('/repo', ['rev-parse', '--git-dir'])
   })
 
-  it("reopenReview updates lastOpenedAt and makes ask use the review's session", async () => {
-    const reviews = memStore([savedReview()])
+  it("reopenReview updates lastOpenedAt and makes ask use the review's chat session", async () => {
+    const saved = savedReview()
+    saved.walkthrough.chatSessionId = 'old-chat'
+    const reviews = memStore([saved])
     const { h, deps } = setup({ reviews, ensureWorktree: vi.fn(async () => '/wts/old') })
     const res = (await h.reopenReview('old-id')) as SavedReview
     expect(res.lastOpenedAt).not.toBe('2026-10-02T00:00:00.000Z')
@@ -836,7 +905,7 @@ describe('review handlers', () => {
     expect(deps.commitExists).toHaveBeenCalledWith('/repo', 'oldhead')
     await h.ask({ stepId: 's2', question: 'why?' })
     expect(vi.mocked(deps.askAboutStep).mock.calls[0][0]).toMatchObject({
-      sessionId: 'old-sess',
+      sessionId: 'old-chat',
       worktreePath: '/wts/old'
     })
     expect(await h.readFile({ sha: 'oldhead', path: 'a.ts' })).toBe('l1\nl2\nl3\n')
@@ -898,7 +967,7 @@ describe('review handlers', () => {
     expect((await h.listReviews()).map((r) => r.id)).toEqual(['old-id'])
   })
 
-  it('saveReviewState keeps costUsd and sessionId written since the review was read', async () => {
+  it('saveReviewState keeps costUsd and chatSessionId written since the review was read', async () => {
     const reviews = memStore([savedReview()])
     const { h } = setup({ reviews })
     await h.reopenReview('old-id')
@@ -907,7 +976,7 @@ describe('review handlers', () => {
     await h.saveReviewState({ id: 'old-id', state })
     const r = reviews.get('old-id')!
     expect(r.state).toEqual(state)
-    expect(r.walkthrough.sessionId).toBe('sess2')
+    expect(r.walkthrough.chatSessionId).toBe('sess2')
     expect(r.costUsd).toBeCloseTo(2.1)
   })
 

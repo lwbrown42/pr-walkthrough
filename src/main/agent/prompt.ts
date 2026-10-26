@@ -107,18 +107,22 @@ Reply in plain text, as the PR's author, in a chat bubble beside the code. This 
 - You can only read the repository; if asked for a change, describe it.`
 }
 
-/** Like `buildChatPrompt`, for a fresh session that has no memory of the walkthrough. */
+/**
+ * Like `buildChatPrompt`, for a fresh session that has no memory of the walkthrough.
+ * `stepDiff` is the diff of the files the step changes, when it is small enough to send.
+ */
 export function buildSeededChatPrompt(
   w: AgentWalkthrough,
   step: Step,
   stepLabel: string,
-  question: string
+  question: string,
+  stepDiff?: string
 ): string {
   const { labels } = labelSteps(w.steps)
   const lines = w.steps
     .map((s, i) => `${labels[i]}. ${s.title}: ${s.explanation.replace(/\s*\n\s*/g, ' ')}`)
     .join('\n')
-  return `You are the author of this pull request. Earlier you walked the reviewer through it; the conversation that followed is not available.
+  return `You are the author of this pull request. Earlier you walked the reviewer through it; this is what you told them.
 
 <walkthrough_summary>
 ${w.summary}
@@ -127,6 +131,6 @@ ${w.summary}
 <walkthrough_steps>
 ${lines}
 </walkthrough_steps>
-
+${stepDiff ? `\nThe diff of the files this step changes:\n<step_diff>\n${stepDiff}\n</step_diff>\n` : ''}
 ${buildChatPrompt(step, stepLabel, question)}`
 }
