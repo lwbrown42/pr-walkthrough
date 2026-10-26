@@ -96,6 +96,36 @@ export function countChangedLines(files: ChangedFile[]): number {
   return files.reduce((sum, f) => sum + f.additions + f.deletions, 0)
 }
 
+const LOCKFILES = new Set([
+  'package-lock.json',
+  'npm-shrinkwrap.json',
+  'pnpm-lock.yaml',
+  'go.sum',
+  'packages.lock.json',
+  'gradle.lockfile'
+])
+/** Machine-written files: lockfiles, snapshots, minified bundles, source maps, protobuf output. */
+const GENERATED = /(\.lock|\.snap|\.min\.(js|css)|\.map|\.pb\.go|_pb2\.pyi?)$|(^|\/)__snapshots__\//
+/** Data files under a fixtures directory; code there stays in the diff. */
+const FIXTURE_DATA =
+  /(^|\/)(testdata|fixtures|__fixtures__)\/.*\.(json|ya?ml|toml|txt|csv|tsv|xml)$/
+/** Smaller changes stay in the diff: a one-line lockfile bump can be the point of a PR. */
+const OMIT_OVER_LINES = 50
+
+/** Whether the walkthrough prompt leaves this file's diff out (the agent can still Read it). */
+export function isDiffOmitted(f: ChangedFile): boolean {
+  if (f.binary || f.additions + f.deletions <= OMIT_OVER_LINES) return false
+  const name = f.path.slice(f.path.lastIndexOf('/') + 1)
+  return LOCKFILES.has(name) || GENERATED.test(f.path) || FIXTURE_DATA.test(f.path)
+}
+
+/** `git diff` arguments for the walkthrough prompt, leaving out the paths in `omit`. */
+export function promptDiffArgs(baseSha: string, headSha: string, omit: string[]): string[] {
+  const args = ['diff', ...PLAIN_DIFF_FLAGS, '-M', baseSha, headSha]
+  if (omit.length === 0) return args
+  return [...args, '--', '.', ...omit.map((p) => `:(exclude,literal)${p}`)]
+}
+
 export async function readFileAt(cwd: string, sha: string, path: string): Promise<string | null> {
   try {
     return await runGit(cwd, ['show', `${sha}:${path}`])

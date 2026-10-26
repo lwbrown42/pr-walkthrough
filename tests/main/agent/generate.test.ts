@@ -322,6 +322,23 @@ describe('buildWalkthroughPrompt', () => {
   })
 })
 
+describe('buildWalkthroughPrompt omitted diffs', () => {
+  it('marks files whose diff the prompt leaves out', () => {
+    const lock: ChangedFile = {
+      ...files[0],
+      path: 'package-lock.json',
+      status: 'modified',
+      additions: 300,
+      deletions: 20
+    }
+    const p = buildWalkthroughPrompt(target, [lock, files[0]], diffText)
+    expect(p).toContain('- modified package-lock.json (+300 -20, diff omitted)')
+    expect(p).not.toContain(
+      `${files[0].path} (+${files[0].additions} -${files[0].deletions}, diff omitted)`
+    )
+  })
+})
+
 describe('WALKTHROUGH_SYSTEM_PROMPT', () => {
   it('carries the spec-fixed rules', () => {
     for (const s of [
@@ -338,7 +355,9 @@ describe('WALKTHROUGH_SYSTEM_PROMPT', () => {
       '1-based',
       '1 to 3 short paragraphs',
       'separated by a blank line',
-      'Only backticks are rendered'
+      'Only backticks are rendered',
+      'diff omitted',
+      'a file this PR adds'
     ])
       expect(WALKTHROUGH_SYSTEM_PROMPT).toContain(s)
   })

@@ -25,7 +25,13 @@ import type { Walkthrough } from '../shared/walkthrough'
 import { askAboutStep } from './agent/chat'
 import { generateWalkthrough } from './agent/generate'
 import { AgentRunError } from './agent/options'
-import { countChangedLines, getChangedFiles, PLAIN_DIFF_FLAGS, readFileAt } from './git/diff'
+import {
+  countChangedLines,
+  getChangedFiles,
+  isDiffOmitted,
+  promptDiffArgs,
+  readFileAt
+} from './git/diff'
 import { runGit } from './git/run'
 import { commitExists, ensureWorktree, resolveGithubPr, resolveLocalBranch } from './git/target'
 import { checkForUpdates } from './git/updates'
@@ -297,13 +303,16 @@ export function createHandlers(deps: HandlerDeps): Handlers {
         const changedLines = deps.countChangedLines(files)
         current = { target, files, changedLines }
         const [diffText, lineCounts] = await Promise.all([
-          deps.runGit(target.worktreePath, [
-            'diff',
-            ...PLAIN_DIFF_FLAGS,
-            '-M',
-            target.baseSha,
-            target.headSha
-          ]),
+          deps.runGit(
+            target.worktreePath,
+            promptDiffArgs(
+              target.baseSha,
+              target.headSha,
+              files
+                .filter(isDiffOmitted)
+                .flatMap((f) => (f.oldPath ? [f.path, f.oldPath] : [f.path]))
+            )
+          ),
           computeLineCounts(target, files)
         ])
         if (abortController.signal.aborted) {

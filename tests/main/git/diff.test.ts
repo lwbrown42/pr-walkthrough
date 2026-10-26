@@ -1,5 +1,11 @@
 import { afterAll, beforeAll, describe, expect, it } from 'vitest'
-import { countChangedLines, getChangedFiles, readFileAt } from '../../../src/main/git/diff'
+import {
+  countChangedLines,
+  getChangedFiles,
+  isDiffOmitted,
+  promptDiffArgs,
+  readFileAt
+} from '../../../src/main/git/diff'
 import type { ChangedFile } from '../../../src/shared/types'
 import { makeTempRepo } from '../../helpers/tempRepo'
 
@@ -96,6 +102,63 @@ describe('git diff ignores user diff config', () => {
       const head = await repo.commit({ 'x.ts': 'b\n' }, 'head')
       const out = await getChangedFiles(repo.dir, base, head)
       expect(out.map((f) => [f.path, f.status, f.hunks.length])).toEqual([['x.ts', 'modified', 1]])
+    } finally {
+      const { rm } = await import('node:fs/promises')
+      await rm(repo.dir, { recursive: true, force: true })
+    }
+  })
+})
+
+describe('isDiffOmitted', () => {
+  const f = (path: string, additions = 200, over: Partial<ChangedFile> = {}): ChangedFile => ({
+    path,
+    status: 'added',
+    binary: false,
+    additions,
+    deletions: 0,
+    hunks: [],
+    ...over
+  })
+
+  it('leaves out large lockfiles, snapshots, minified bundles and data fixtures', () => {
+    for (const p of [
+      'package-lock.json',
+      'web/yarn.lock',
+      'go.sum',
+      'Cargo.lock',
+      'test/Pixi/testdata/pixi-v6.lock',
+      'src/__snapshots__/view.test.ts.snap',
+      'public/app.min.js',
+      'tests/fixtures/walkthrough.json'
+    ])
+      expect(isDiffOmitted(f(p)), p).toBe(true)
+  })
+
+  it('keeps source, tests and code fixtures, and any small change', () => {
+    for (const p of ['src/main/ipc.ts', 'test/Pixi/PixiLockSpec.hs', 'tests/fixtures/make.ts'])
+      expect(isDiffOmitted(f(p)), p).toBe(false)
+    expect(isDiffOmitted(f('package-lock.json', 12))).toBe(false)
+  })
+})
+
+describe('promptDiffArgs', () => {
+  it('leaves the omitted files out of the diff and keeps the rest', async () => {
+    const { runGit } = await import('../../../src/main/git/run')
+    const repo = await makeTempRepo()
+    try {
+      const base = await repo.commit({ 'x.ts': 'a\n' }, 'base')
+      const head = await repo.commit(
+        { 'x.ts': 'b\n', 'package-lock.json': lines(80), 'odd [name].lock': lines(80) },
+        'head'
+      )
+      const out = await runGit(
+        repo.dir,
+        promptDiffArgs(base, head, ['package-lock.json', 'odd [name].lock'])
+      )
+      expect(out).toContain('b/x.ts')
+      expect(out).not.toContain('package-lock.json')
+      expect(out).not.toContain('odd [name].lock')
+      expect(promptDiffArgs(base, head, [])).not.toContain('--')
     } finally {
       const { rm } = await import('node:fs/promises')
       await rm(repo.dir, { recursive: true, force: true })

@@ -264,6 +264,30 @@ describe('generate', () => {
     expect(args.lineCounts).toEqual({ head: { 'ok.ts': 1 }, base: { 'ok.ts': 1 } })
   })
 
+  it('leaves large lockfiles and other machine-made files out of the prompt diff', async () => {
+    const files = [
+      file({ path: 'a.ts' }),
+      file({ path: 'package-lock.json', additions: 400 }),
+      file({ path: 'web/yarn.lock', additions: 3 })
+    ]
+    const { h, deps } = setup({}, files)
+    await h.openTarget(local)
+    await h.generate(target)
+    expect(deps.runGit).toHaveBeenCalledWith('/wt', [
+      'diff',
+      '--no-ext-diff',
+      '--no-color',
+      '--src-prefix=a/',
+      '--dst-prefix=b/',
+      '-M',
+      'base',
+      'head',
+      '--',
+      '.',
+      ':(exclude,literal)package-lock.json'
+    ])
+  })
+
   it('cancelGenerate aborts the run, returns a cancelled error, and logs cancelled', async () => {
     const { h, log } = setup({
       generateWalkthrough: vi.fn(

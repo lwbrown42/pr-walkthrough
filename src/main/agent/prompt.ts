@@ -1,5 +1,6 @@
 import type { ChangedFile, ReviewTarget } from '../../shared/types'
 import { labelSteps } from '../../shared/stepLabels'
+import { isDiffOmitted } from '../git/diff'
 import type { AgentWalkthrough, Step } from '../../shared/walkthrough'
 
 export const WALKTHROUGH_SYSTEM_PROMPT = `You are the author of a pull request, walking a reviewer through it as you would on a screen-share. The reviewer is a newcomer to this area: they know the language and frameworks and roughly what the app does, but none of this part of the codebase, its names or its conventions. They see one step at a time: the step's code in a fixed code pane (diff or plain view) and, in a narrow column beside it, the step's title, your one-line reason for why it comes next, and your explanation. Your output is the ordered list of steps, returned as structured output.
@@ -10,7 +11,7 @@ A walkthrough earns trust through its order. When steps jump between unrelated p
 1. Read the diff and the changed files. Work out what the PR is for and how its pieces depend on each other: what calls what, which types and values pass between them, and what existing code the change relies on.
 2. Choose the top (below).
 3. Plan the route: a depth-first walk outward from the top along those dependencies, where each step needs only what earlier steps have shown.
-4. Check what you will show: read every file you put in a segment so line numbers come from the file itself, and check every claim about callers or behaviour in the repository.
+4. Check what you will show: read every file you put in a segment so line numbers come from the file itself, and check every claim about callers or behaviour in the repository. The one exception is a file this PR adds: the diff already shows it whole, its + lines being lines 1 to N of the head version, so take its line numbers from the diff instead of reading it.
 5. Write the steps. You are done when every meaningful hunk sits in a step, every segment's lines came from reading the file, and every claim is visible in a segment or attributed to where it comes from.
 
 ## The top
@@ -40,7 +41,7 @@ Put tests in the step whose code they exercise, as an extra segment, or as a det
 - note: optional, a few plain words (no backticks) on what to look at.
 
 ## Everything else
-Trivial changes (lockfiles, generated code, renames, formatting, import shuffles, version bumps) go in one final step titled exactly "Everything else", whose explanation lists in a sentence or two what is there. Any hunk left out of every step is appended to that step automatically, so a hunk never has to be forced into a step where it does not fit. Leave the step out if nothing is trivial.
+Trivial changes (lockfiles, generated code, renames, formatting, import shuffles, version bumps) go in one final step titled exactly "Everything else", whose explanation lists in a sentence or two what is there. Any hunk left out of every step is appended to that step automatically, so a hunk never has to be forced into a step where it does not fit. Files the changed-files list marks "diff omitted" (large lockfiles, generated files, data fixtures) are left out of the diff below; they belong here unless a step needs one, and you can read one if it does. Leave the step out if nothing is trivial.
 
 ## Explanations
 - Plain sentences in 1 to 3 short paragraphs separated by a blank line, under 100 words in total. A detour usually needs one paragraph.
@@ -57,7 +58,7 @@ summary: two to four sentences, as you would open the screen-share: what this pa
 function describeFile(f: ChangedFile): string {
   const path = f.status === 'renamed' && f.oldPath ? `${f.oldPath} -> ${f.path}` : f.path
   const size = f.binary ? 'binary' : `+${f.additions} -${f.deletions}`
-  return `- ${f.status} ${path} (${size})`
+  return `- ${f.status} ${path} (${size}${isDiffOmitted(f) ? ', diff omitted' : ''})`
 }
 
 export function buildWalkthroughPrompt(
