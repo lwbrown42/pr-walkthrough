@@ -1,6 +1,6 @@
 import { randomUUID } from 'node:crypto'
 import { realpathSync } from 'node:fs'
-import { resolve, sep } from 'node:path'
+import { isAbsolute, resolve, sep } from 'node:path'
 import { dialog, ipcMain, type BrowserWindow } from 'electron'
 import {
   CHANGED_LINES_LIMIT,
@@ -163,6 +163,8 @@ export function createHandlers(deps: HandlerDeps): Handlers {
 
   /** Whether a path lies inside worktreesDir (as given, or its realpath if it exists). */
   function insideWorktreesDir(path: string): boolean {
+    // git resolves a relative worktree path against the repo, not our cwd.
+    if (!isAbsolute(path)) return false
     const roots = [resolve(deps.worktreesDir)]
     try {
       roots.push(realpathSync(deps.worktreesDir))
@@ -340,10 +342,6 @@ export function createHandlers(deps: HandlerDeps): Handlers {
           lastOpenedAt: at,
           costUsd: (previous?.costUsd ?? 0) + (result.costUsd ?? 0)
         }
-        deps.reviews.save(review)
-        walkthrough = generated
-        reviewId = id
-        sessionVerified = true
         entry({
           outcome: 'success',
           costUsd: result.costUsd,
@@ -352,7 +350,22 @@ export function createHandlers(deps: HandlerDeps): Handlers {
           tokens: result.tokens,
           tokensByModel: result.tokensByModel
         })
-        if (previous) await removeOldWorktree(previous, target.worktreePath)
+        walkthrough = generated
+        reviewId = id
+        sessionVerified = true
+        // The walkthrough is made and paid for: a failure to persist or tidy up must not
+        // turn it into an error or log the run a second time.
+        try {
+          deps.reviews.save(review)
+        } catch {
+          // The reader still gets the review; it just is not saved.
+          return review
+        }
+        try {
+          if (previous) await removeOldWorktree(previous, target.worktreePath)
+        } catch {
+          // best effort
+        }
         return review
       } catch (err) {
         const agentErr = err instanceof AgentRunError ? err : null
@@ -506,10 +519,15 @@ export function createHandlers(deps: HandlerDeps): Handlers {
           }
         }
         const worktreePath = await deps.ensureWorktree(saved.repoPath, saved.headSha)
-        const target = worktreePath === saved.worktreePath ? saved : { ...saved, worktreePath }
+        // Re-read: an update check or a chat write may have landed during the awaits above.
+        const latest = deps.reviews.get(id) ?? review
+        const target =
+          worktreePath === latest.walkthrough.target.worktreePath
+            ? latest.walkthrough.target
+            : { ...latest.walkthrough.target, worktreePath }
         const reopened: SavedReview = {
-          ...review,
-          walkthrough: { ...review.walkthrough, target },
+          ...latest,
+          walkthrough: { ...latest.walkthrough, target },
           lastOpenedAt: new Date(deps.now()).toISOString()
         }
         deps.reviews.save(reopened)

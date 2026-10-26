@@ -37,6 +37,8 @@ export default function ReviewsList(props: Props): React.JSX.Element {
   const [reviews, setReviews] = useState<ReviewSummary[]>([])
   /** Update-check results by review id (null = checked, nothing found). */
   const [updates, setUpdates] = useState<Record<string, ReviewUpdate | null>>({})
+  /** The row whose Regenerate is awaiting confirmation. */
+  const [confirmId, setConfirmId] = useState<string>()
   const [undo, setUndo] = useState<SavedReview>()
   const undoTimer = useRef<ReturnType<typeof setTimeout>>(undefined)
   const onLoadedRef = useRef(onLoaded)
@@ -184,13 +186,37 @@ export default function ReviewsList(props: Props): React.JSX.Element {
                   </div>
                   {err && (
                     <div className="review-error" role="alert">
-                      <span>{err.message}</span>
-                      {err.regenerate && (
+                      {confirmId === r.id ? (
+                        <>
+                          <span>
+                            Regenerate? This replaces the current walkthrough and its chat.
+                          </span>
+                          <button
+                            type="button"
+                            onClick={() => {
+                              setConfirmId(undefined)
+                              props.onRegenerate(r)
+                            }}
+                          >
+                            Regenerate
+                          </button>
+                          <button
+                            type="button"
+                            className="secondary"
+                            onClick={() => setConfirmId(undefined)}
+                          >
+                            Cancel
+                          </button>
+                        </>
+                      ) : (
+                        <span>{err.message}</span>
+                      )}
+                      {err.regenerate && confirmId !== r.id && (
                         <>
                           <button
                             type="button"
                             className="secondary"
-                            onClick={() => props.onRegenerate(r)}
+                            onClick={() => setConfirmId(r.id)}
                           >
                             Regenerate
                           </button>

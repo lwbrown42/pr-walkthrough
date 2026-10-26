@@ -27,7 +27,8 @@ type Tab = 'local' | 'github'
 function savedPrompt(saved: NonNullable<OpenResult['saved']>): string {
   const base = `You have a saved review of this PR (${saved.progress}, ${relativeTime(saved.lastOpenedAt, Date.now())})`
   const n = saved.newCommits
-  if (!n) return base
+  if (n === 0) return base
+  if (n === null) return `${base} · new commits since`
   return `${base} · ${n === 1 ? '1 new commit' : `${n} new commits`} since`
 }
 

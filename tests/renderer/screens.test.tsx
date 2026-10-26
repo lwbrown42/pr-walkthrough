@@ -257,6 +257,26 @@ describe('screens', () => {
     ).toBeTruthy()
   })
 
+  it('Open says "new commits" without a number when the count is unknown', async () => {
+    api.openTarget.mockResolvedValue({
+      ...opened(10, false),
+      saved: {
+        id: 'r9',
+        progress: 'step 1 of 2',
+        lastOpenedAt: new Date().toISOString(),
+        newCommits: null
+      }
+    })
+    const user = userEvent.setup()
+    render(<App />)
+    await openLocal(user)
+    expect(
+      await screen.findByText(
+        'You have a saved review of this PR (step 1 of 2, just now) · new commits since'
+      )
+    ).toBeTruthy()
+  })
+
   it('clears the opened target when inputs change or tabs switch', async () => {
     const user = userEvent.setup()
     render(<App />)

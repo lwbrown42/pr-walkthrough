@@ -1,3 +1,4 @@
+import { resolve } from 'node:path'
 import { describe, expect, it, vi } from 'vitest'
 import { createHandlers, type HandlerDeps } from '../../src/main/ipc'
 import { AgentRunError } from '../../src/main/agent/options'
@@ -506,6 +507,69 @@ describe('saved reviews', () => {
     expect(stored!.createdAt).toBe(stored!.generatedAt)
     expect(stored!.lastOpenedAt).toBe(stored!.generatedAt)
     expect(log[0].reviewId).toBe('new-id')
+  })
+
+  it('generate returns the review and logs one success when the save throws', async () => {
+    const reviews = memStore()
+    vi.mocked(reviews.save).mockImplementation(() => {
+      throw new Error('disk full')
+    })
+    const { h, log } = setup({ reviews })
+    await h.openTarget(local)
+    const res = await h.generate(target)
+    expect(res).toMatchObject({ id: 'new-id', costUsd: 0.5 })
+    expect(log.map((e) => e.outcome)).toEqual(['success'])
+    expect(log[0].costUsd).toBe(0.5)
+  })
+
+  it('generate logs one success when listing reviews for worktree cleanup throws', async () => {
+    const base = memStore([savedReview()])
+    const reviews = {
+      ...base,
+      list: () => {
+        throw new Error('boom')
+      }
+    }
+    const { h, log } = setup({ reviews })
+    await h.openTarget(local)
+    const res = await h.generate(target)
+    expect(res).toMatchObject({ id: 'old-id' })
+    expect(log.map((e) => e.outcome)).toEqual(['success'])
+  })
+
+  it('removeOldWorktree never removes a relative worktreePath', async () => {
+    const r = savedReview()
+    r.walkthrough.target.worktreePath = 'wts/old'
+    const { h, deps } = setup({
+      reviews: memStore([r]),
+      worktreesDir: resolve(process.cwd(), 'wts'),
+      runGit: vi.fn(async () => '')
+    })
+    await h.openTarget(local)
+    await h.generate(target)
+    expect(vi.mocked(deps.runGit).mock.calls.some((c) => c[1].includes('remove'))).toBe(false)
+  })
+
+  it('reopenReview keeps a write that lands during ensureWorktree', async () => {
+    const reviews = memStore([savedReview()])
+    const { h } = setup({
+      reviews,
+      ensureWorktree: vi.fn(async () => {
+        const cur = reviews.get('old-id')!
+        reviews.save({
+          ...cur,
+          costUsd: 9,
+          walkthrough: { ...cur.walkthrough, sessionId: 'fresh' }
+        })
+        return '/wts/old'
+      })
+    })
+    const res = (await h.reopenReview('old-id')) as SavedReview
+    expect(res.costUsd).toBe(9)
+    expect(reviews.get('old-id')).toMatchObject({
+      costUsd: 9,
+      walkthrough: { sessionId: 'fresh' }
+    })
   })
 
   it('generate for the same key keeps id and createdAt, resets messages and index, keeps mode', async () => {

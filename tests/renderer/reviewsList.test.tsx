@@ -157,8 +157,17 @@ describe('ReviewsList', () => {
     )
     expect(await screen.findByText('Commit gone')).toBeTruthy()
     await userEvent.click(screen.getByRole('button', { name: 'Regenerate' }))
-    expect(onRegenerate).toHaveBeenCalledWith(expect.objectContaining({ id: '1' }))
+    expect(onRegenerate).not.toHaveBeenCalled()
+    expect(
+      screen.getByText('Regenerate? This replaces the current walkthrough and its chat.')
+    ).toBeTruthy()
+    await userEvent.click(screen.getByRole('button', { name: 'Cancel' }))
+    expect(onRegenerate).not.toHaveBeenCalled()
     expect(screen.getAllByRole('button', { name: 'Delete' }).length).toBe(1)
+    await userEvent.click(screen.getByRole('button', { name: 'Regenerate' }))
+    await userEvent.click(screen.getByRole('button', { name: 'Regenerate' }))
+    expect(onRegenerate).toHaveBeenCalledTimes(1)
+    expect(onRegenerate).toHaveBeenCalledWith(expect.objectContaining({ id: '1' }))
     rerender(
       <ReviewsList
         onReopen={noop}
