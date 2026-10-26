@@ -43,6 +43,18 @@ export default function ReviewsList(props: Props): React.JSX.Element {
   onLoadedRef.current = onLoaded
 
   useEffect(() => {
+    onLoadedRef.current?.(reviews.length)
+  }, [reviews])
+
+  const relist = useCallback(async (): Promise<void> => {
+    try {
+      setReviews(await window.api.listReviews())
+    } catch {
+      // Nothing more to do; the list stays as it is.
+    }
+  }, [])
+
+  useEffect(() => {
     let cancelled = false
     const run = async (): Promise<void> => {
       let list: ReviewSummary[]
@@ -53,7 +65,6 @@ export default function ReviewsList(props: Props): React.JSX.Element {
       }
       if (cancelled) return
       setReviews(list)
-      onLoadedRef.current?.(list.length)
       const queue = list.filter((r) => r.repoFound)
       const worker = async (): Promise<void> => {
         for (let r = queue.shift(); r && !cancelled; r = queue.shift()) {
@@ -75,28 +86,35 @@ export default function ReviewsList(props: Props): React.JSX.Element {
 
   useEffect(() => () => clearTimeout(undoTimer.current), [])
 
-  const remove = useCallback(async (id: string): Promise<void> => {
-    setReviews((cur) => {
-      const next = cur.filter((r) => r.id !== id)
-      onLoadedRef.current?.(next.length)
-      return next
-    })
-    const removed = await window.api.deleteReview(id)
-    if (!removed) return
-    setUndo(removed)
-    clearTimeout(undoTimer.current)
-    undoTimer.current = setTimeout(() => setUndo(undefined), UNDO_MS)
-  }, [])
+  const remove = useCallback(
+    async (id: string): Promise<void> => {
+      setReviews((cur) => cur.filter((r) => r.id !== id))
+      let removed: SavedReview | null
+      try {
+        removed = await window.api.deleteReview(id)
+      } catch {
+        await relist()
+        return
+      }
+      if (!removed) return
+      setUndo(removed)
+      clearTimeout(undoTimer.current)
+      undoTimer.current = setTimeout(() => setUndo(undefined), UNDO_MS)
+    },
+    [relist]
+  )
 
   const restore = async (): Promise<void> => {
     if (!undo) return
     clearTimeout(undoTimer.current)
     const review = undo
     setUndo(undefined)
-    await window.api.restoreReview(review)
-    const list = await window.api.listReviews()
-    setReviews(list)
-    onLoadedRef.current?.(list.length)
+    try {
+      await window.api.restoreReview(review)
+    } catch {
+      // Fall through to re-list, which shows what is really on disk.
+    }
+    await relist()
   }
 
   const badgeFor = (r: ReviewSummary): string | undefined => {

@@ -188,6 +188,28 @@ describe('ReviewsList', () => {
     expect(screen.queryByText('Review deleted')).toBeNull()
   })
 
+  it('re-lists without a toast when delete rejects', async () => {
+    api.listReviews.mockResolvedValue([summary('1')])
+    api.deleteReview.mockRejectedValue(new Error('disk'))
+    render(<ReviewsList onReopen={noop} onRegenerate={noop} />)
+    await screen.findByText('Title 1')
+    await userEvent.click(screen.getByRole('button', { name: 'Delete review' }))
+    await waitFor(() => expect(api.listReviews).toHaveBeenCalledTimes(2))
+    expect(await screen.findByText('Title 1')).toBeTruthy()
+    expect(screen.queryByText('Review deleted')).toBeNull()
+  })
+
+  it('re-lists when restore rejects', async () => {
+    api.listReviews.mockResolvedValue([summary('1')])
+    api.deleteReview.mockResolvedValue({ id: '1' } as SavedReview)
+    api.restoreReview.mockRejectedValue(new Error('disk'))
+    render(<ReviewsList onReopen={noop} onRegenerate={noop} />)
+    await screen.findByText('Title 1')
+    await userEvent.click(screen.getByRole('button', { name: 'Delete review' }))
+    await userEvent.click(await screen.findByRole('button', { name: 'Undo' }))
+    await waitFor(() => expect(api.listReviews).toHaveBeenCalledTimes(2))
+  })
+
   it('removes the Undo toast after 6 seconds', async () => {
     api.listReviews.mockResolvedValue([summary('1')])
     api.deleteReview.mockResolvedValue({ id: '1' } as SavedReview)
