@@ -26,6 +26,9 @@ export interface ReviewTarget {
   headSha: string
   title: string
   prNumber?: number
+  /** Human ref names, recorded so later update checks and the UI can show base → head. */
+  baseRef?: string
+  headRef?: string
 }
 
 export interface Settings {

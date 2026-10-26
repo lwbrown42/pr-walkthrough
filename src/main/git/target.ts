@@ -38,6 +38,14 @@ async function refExists(git: typeof runGit, repoPath: string, ref: string): Pro
   }
 }
 
+export async function commitExists(
+  repoPath: string,
+  sha: string,
+  git: typeof runGit = runGit
+): Promise<boolean> {
+  return refExists(git, repoPath, sha)
+}
+
 async function defaultBaseRef(git: typeof runGit, repoPath: string): Promise<string> {
   try {
     const out = await git(repoPath, ['symbolic-ref', 'refs/remotes/origin/HEAD'])
@@ -52,7 +60,7 @@ async function defaultBaseRef(git: typeof runGit, repoPath: string): Promise<str
   throw new Error('Could not determine the default branch; pass a base ref explicitly')
 }
 
-async function ensureWorktree(
+export async function ensureWorktree(
   git: typeof runGit,
   repoPath: string,
   worktreesDir: string,
@@ -94,7 +102,16 @@ export async function resolveLocalBranch(
   const headSha = (await git(repoPath, ['rev-parse', '--verify', `${headRef}^{commit}`])).trim()
   const baseSha = (await git(repoPath, ['merge-base', baseRef, headSha])).trim()
   const worktreePath = await ensureWorktree(git, repoPath, worktreesDir, headSha)
-  return { kind: 'local', repoPath, worktreePath, baseSha, headSha, title: headRef }
+  return {
+    kind: 'local',
+    repoPath,
+    worktreePath,
+    baseSha,
+    headSha,
+    title: headRef,
+    baseRef,
+    headRef
+  }
 }
 
 export async function resolveGithubPr(
@@ -121,14 +138,20 @@ export async function resolveGithubPr(
     }
   }
 
-  let info: { number: number; title: string; baseRefName: string; headRefOid: string }
+  let info: {
+    number: number
+    title: string
+    baseRefName: string
+    headRefName: string
+    headRefOid: string
+  }
   try {
     const out = await gh(repoPath, [
       'pr',
       'view',
       String(n),
       '--json',
-      'number,title,baseRefName,headRefOid'
+      'number,title,baseRefName,headRefName,headRefOid'
     ])
     info = JSON.parse(out)
   } catch (e) {
@@ -149,7 +172,9 @@ export async function resolveGithubPr(
     baseSha,
     headSha,
     title: info.title,
-    prNumber: info.number
+    prNumber: info.number,
+    baseRef: info.baseRefName,
+    headRef: info.headRefName
   }
 }
 

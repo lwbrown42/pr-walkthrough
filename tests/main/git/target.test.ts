@@ -5,6 +5,7 @@ import { join } from 'node:path'
 import { makeTempRepo, type TempRepo } from '../../helpers/tempRepo'
 import { runGit } from '../../../src/main/git/run'
 import {
+  commitExists,
   parsePrRef,
   removeWorktree,
   resolveGithubPr,
@@ -42,6 +43,12 @@ describe('resolveLocalBranch', () => {
     expect(t.baseSha).toBe(base)
     expect(t.headSha).toBe(head)
     expect(t.title).toBe('feature')
+  })
+
+  it('sets headRef and the resolved baseRef', async () => {
+    const { repo, wt } = await setup()
+    const t = await resolveLocalBranch({ repoPath: repo.dir, headRef: 'feature', worktreesDir: wt })
+    expect(t).toMatchObject({ headRef: 'feature', baseRef: 'main' })
   })
 
   it('honors an explicit baseRef', async () => {
@@ -87,6 +94,29 @@ describe('parsePrRef', () => {
 })
 
 describe('resolveGithubPr', () => {
+  it('sets baseRef and headRef from gh', async () => {
+    const { repo, wt, base, head } = await setup()
+    const t = await resolveGithubPr(
+      { repoPath: repo.dir, pr: '7', worktreesDir: wt },
+      {
+        runGh: async () =>
+          JSON.stringify({
+            number: 7,
+            title: 'T',
+            baseRefName: 'main',
+            headRefName: 'feat/x',
+            headRefOid: head
+          }),
+        runGit: async (cwd, args) => {
+          if (args[0] === 'fetch') return ''
+          if (args[0] === 'merge-base') return `${base}\n`
+          return runGit(cwd, args)
+        }
+      }
+    )
+    expect(t).toMatchObject({ baseRef: 'main', headRef: 'feat/x' })
+  })
+
   it('maps gh failures to a GitHub CLI error', async () => {
     const { repo, wt } = await setup()
     await expect(
@@ -188,5 +218,13 @@ describe('resolveGithubPr repo check', () => {
         { runGh: fakeGh('me/app') }
       )
     ).rejects.toThrow(/stop after repo check/)
+  })
+})
+
+describe('commitExists', () => {
+  it('is false for an unknown sha and true for HEAD', async () => {
+    const { repo } = await setup()
+    expect(await commitExists(repo.dir, 'deadbeef'.repeat(5))).toBe(false)
+    expect(await commitExists(repo.dir, 'HEAD')).toBe(true)
   })
 })
