@@ -1,4 +1,4 @@
-import { describe, it, expect, afterEach, vi } from 'vitest'
+import { describe, it, expect, afterEach, vi, type Mock } from 'vitest'
 import { rm } from 'node:fs/promises'
 import { makeTempRepo } from '../../helpers/tempRepo'
 import { runGit } from '../../../src/main/git/run'
@@ -62,7 +62,8 @@ describe('checkForUpdates (local)', () => {
 })
 
 describe('checkForUpdates (github)', () => {
-  const gh = (oid: string) => vi.fn(async () => JSON.stringify({ headRefOid: oid }))
+  const gh = (oid: string): Mock<() => Promise<string>> =>
+    vi.fn(async () => JSON.stringify({ headRefOid: oid }))
 
   it('same headRefOid → 0 and no git call', async () => {
     const git = vi.fn(async () => '')

@@ -8,6 +8,7 @@ import {
   progressLabel,
   reviewKey,
   summarizeReview,
+  type ReviewUpdate,
   type SavedReview
 } from '../../src/shared/reviews'
 import type { ReviewTarget } from '../../src/shared/types'
@@ -133,7 +134,7 @@ describe('summarizeReview', () => {
     })
   })
   it('reports newCommits as undefined, a count, or null', () => {
-    const upd = (latestHeadSha: string, newCommits: number | null) => ({
+    const upd = (latestHeadSha: string, newCommits: number | null): ReviewUpdate => ({
       latestHeadSha,
       newCommits,
       checkedAt: 'now'
