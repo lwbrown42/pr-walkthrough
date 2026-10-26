@@ -1,4 +1,6 @@
 import { randomUUID } from 'node:crypto'
+import { realpathSync } from 'node:fs'
+import { resolve, sep } from 'node:path'
 import { dialog, ipcMain, type BrowserWindow } from 'electron'
 import {
   CHANGED_LINES_LIMIT,
@@ -159,13 +161,26 @@ export function createHandlers(deps: HandlerDeps): Handlers {
     }
   }
 
+  /** Whether a path lies inside worktreesDir (as given, or its realpath if it exists). */
+  function insideWorktreesDir(path: string): boolean {
+    const roots = [resolve(deps.worktreesDir)]
+    try {
+      roots.push(realpathSync(deps.worktreesDir))
+    } catch {
+      // missing dir: the resolved path alone
+    }
+    const abs = resolve(path)
+    return roots.some((root) => abs.startsWith(root + sep))
+  }
+
   /**
    * Removes a replaced or deleted review's worktree unless the new walkthrough (keepPath) or
-   * another review uses it. A missing repo makes the removal fail, which is ignored.
+   * another review uses it. Never touches a path outside worktreesDir (a restored review comes
+   * from the renderer). A missing repo makes the removal fail, which is ignored.
    */
   async function removeOldWorktree(old: SavedReview, keepPath?: string): Promise<void> {
     const { repoPath, worktreePath } = old.walkthrough.target
-    if (worktreePath === keepPath) return
+    if (worktreePath === keepPath || !insideWorktreesDir(worktreePath)) return
     const shared = deps.reviews
       .list()
       .some((r) => r.id !== old.id && r.walkthrough.target.worktreePath === worktreePath)
@@ -511,7 +526,10 @@ export function createHandlers(deps: HandlerDeps): Handlers {
     async saveReviewState({ id, state }) {
       // Re-read so costUsd and sessionId written here since the renderer loaded it survive.
       const review = deps.reviews.get(id)
-      if (review) deps.reviews.save({ ...review, state })
+      if (!review) return
+      // The state comes from the renderer: a malformed one would make the file unreadable.
+      const updated = { ...review, state }
+      if (SavedReviewSchema.safeParse(updated).success) deps.reviews.save(updated)
     },
 
     async deleteReview(id) {

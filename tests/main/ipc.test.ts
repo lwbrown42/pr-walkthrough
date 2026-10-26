@@ -2,7 +2,7 @@ import { describe, expect, it, vi } from 'vitest'
 import { createHandlers, type HandlerDeps } from '../../src/main/ipc'
 import { AgentRunError } from '../../src/main/agent/options'
 import type { ReviewStore } from '../../src/main/reviews/store'
-import { reviewKey, type SavedReview } from '../../src/shared/reviews'
+import { reviewKey, type ReviewState, type SavedReview } from '../../src/shared/reviews'
 import type { ChangedFile, ReviewTarget, RunLogEntry, Settings } from '../../src/shared/types'
 import type { Step } from '../../src/shared/walkthrough'
 
@@ -48,7 +48,7 @@ const savedReview = (over: Partial<SavedReview> = {}, t: ReviewTarget = target):
   walkthrough: {
     summary: 'old summary',
     steps: [step, { ...step, id: 's2' }],
-    target: { ...t, worktreePath: '/wt-old', headSha: 'oldhead' },
+    target: { ...t, worktreePath: '/wts/old', headSha: 'oldhead' },
     files: [],
     changedLines: 5,
     sessionId: 'old-sess'
@@ -574,7 +574,7 @@ describe('saved reviews', () => {
   it('regenerate removes the old worktree when no other review uses it', async () => {
     const { h, deps } = setup({ reviews: memStore([savedReview()]) })
     await h.generate(target)
-    expect(deps.runGit).toHaveBeenCalledWith('/repo', ['worktree', 'remove', '--force', '/wt-old'])
+    expect(deps.runGit).toHaveBeenCalledWith('/repo', ['worktree', 'remove', '--force', '/wts/old'])
   })
 
   it('regenerate ignores a failure to remove the old worktree', async () => {
@@ -710,7 +710,7 @@ describe('review handlers', () => {
       savedReview({ id: 'b', key: 'kb', lastOpenedAt: daysAgo(1) })
     ])
     const old = savedReview({ id: 'old', key: 'ko', lastOpenedAt: daysAgo(8) })
-    old.walkthrough.target.worktreePath = '/wt-expired'
+    old.walkthrough.target.worktreePath = '/wts/expired'
     reviews.save(old)
     const { h, deps } = setup({ reviews, now: () => NOW })
     const list = await h.listReviews()
@@ -721,9 +721,9 @@ describe('review handlers', () => {
       'worktree',
       'remove',
       '--force',
-      '/wt-expired'
+      '/wts/expired'
     ])
-    expect(deps.runGit).not.toHaveBeenCalledWith('/repo', expect.arrayContaining(['/wt-old']))
+    expect(deps.runGit).not.toHaveBeenCalledWith('/repo', expect.arrayContaining(['/wts/old']))
   })
 
   it('listReviews marks repoFound false when rev-parse fails', async () => {
@@ -740,29 +740,29 @@ describe('review handlers', () => {
 
   it("reopenReview updates lastOpenedAt and makes ask use the review's session", async () => {
     const reviews = memStore([savedReview()])
-    const { h, deps } = setup({ reviews, ensureWorktree: vi.fn(async () => '/wt-old') })
+    const { h, deps } = setup({ reviews, ensureWorktree: vi.fn(async () => '/wts/old') })
     const res = (await h.reopenReview('old-id')) as SavedReview
     expect(res.lastOpenedAt).not.toBe('2026-10-02T00:00:00.000Z')
     expect(reviews.get('old-id')).toEqual(res)
-    expect(res.walkthrough.target.worktreePath).toBe('/wt-old')
+    expect(res.walkthrough.target.worktreePath).toBe('/wts/old')
     expect(deps.commitExists).toHaveBeenCalledWith('/repo', 'oldhead')
     await h.ask({ stepId: 's2', question: 'why?' })
     expect(vi.mocked(deps.askAboutStep).mock.calls[0][0]).toMatchObject({
       sessionId: 'old-sess',
-      worktreePath: '/wt-old'
+      worktreePath: '/wts/old'
     })
     expect(await h.readFile({ sha: 'oldhead', path: 'a.ts' })).toBe('l1\nl2\nl3\n')
-    expect(deps.readFileAt).toHaveBeenCalledWith('/wt-old', 'oldhead', 'a.ts')
+    expect(deps.readFileAt).toHaveBeenCalledWith('/wts/old', 'oldhead', 'a.ts')
     expect((await h.getReviewUsage()).runs).toBe(1)
   })
 
   it('reopenReview recreates a missing worktree via ensureWorktree', async () => {
     const reviews = memStore([savedReview()])
-    const { h, deps } = setup({ reviews, ensureWorktree: vi.fn(async () => '/wt-new') })
+    const { h, deps } = setup({ reviews, ensureWorktree: vi.fn(async () => '/wts/new') })
     const res = (await h.reopenReview('old-id')) as SavedReview
     expect(deps.ensureWorktree).toHaveBeenCalledWith('/repo', 'oldhead')
-    expect(res.walkthrough.target.worktreePath).toBe('/wt-new')
-    expect(reviews.get('old-id')!.walkthrough.target.worktreePath).toBe('/wt-new')
+    expect(res.walkthrough.target.worktreePath).toBe('/wts/new')
+    expect(reviews.get('old-id')!.walkthrough.target.worktreePath).toBe('/wts/new')
   })
 
   it('reopenReview returns missing_commit when the head sha is gone', async () => {
@@ -800,6 +800,16 @@ describe('review handlers', () => {
     expect(reviews.get('missing')).toBeNull()
   })
 
+  it('saveReviewState ignores a malformed state and the review still lists', async () => {
+    const reviews = memStore([savedReview({ lastOpenedAt: daysAgo(1) })])
+    const { h } = setup({ reviews, now: () => NOW })
+    const bad = { index: 'two', seen: null } as unknown as ReviewState
+    await h.saveReviewState({ id: 'old-id', state: bad })
+    expect(reviews.save).not.toHaveBeenCalled()
+    expect(reviews.get('old-id')!.state).toEqual(savedReview().state)
+    expect((await h.listReviews()).map((r) => r.id)).toEqual(['old-id'])
+  })
+
   it('saveReviewState keeps costUsd and sessionId written since the review was read', async () => {
     const reviews = memStore([savedReview()])
     const { h } = setup({ reviews })
@@ -821,8 +831,27 @@ describe('review handlers', () => {
     expect(reviews.get('old-id')).toBeNull()
     expect(deps.runGit).not.toHaveBeenCalledWith('/repo', expect.arrayContaining(['worktree']))
     await h.deleteReview('pr-id')
-    expect(deps.runGit).toHaveBeenCalledWith('/repo', ['worktree', 'remove', '--force', '/wt-old'])
+    expect(deps.runGit).toHaveBeenCalledWith('/repo', ['worktree', 'remove', '--force', '/wts/old'])
     expect(await h.deleteReview('pr-id')).toBeNull()
+  })
+
+  it('never removes a worktree outside the worktrees dir', async () => {
+    const outside = savedReview({ id: 'out', key: 'k-out', lastOpenedAt: daysAgo(1) })
+    outside.walkthrough.target.worktreePath = '/home/me/project'
+    const sneaky = savedReview({ id: 'sneaky', key: 'k-sneaky', lastOpenedAt: daysAgo(9) })
+    sneaky.walkthrough.target.worktreePath = '/wts/../etc'
+    const prefix = savedReview({ id: 'prefix', key: 'k-prefix' })
+    prefix.walkthrough.target.worktreePath = '/wts-other/x'
+    const reviews = memStore()
+    const { h, deps } = setup({ reviews, now: () => NOW })
+    await h.restoreReview(outside)
+    await h.restoreReview(sneaky)
+    await h.restoreReview(prefix)
+    await h.deleteReview('out')
+    await h.deleteReview('prefix')
+    await h.listReviews()
+    expect(reviews.list()).toEqual([])
+    expect(deps.runGit).not.toHaveBeenCalledWith('/repo', expect.arrayContaining(['worktree']))
   })
 
   it('deleteReview of the open review closes it', async () => {
