@@ -15,6 +15,7 @@ Built for reviewing large, often agent-written PRs, where reading the diff file 
   - **Left:** every step, always visible.
   - **Center:** the code for the current step, in **Diff** or **Plain** mode. It shows the changed lines plus a few lines around them, and unchanged code from elsewhere in the repo when it helps, marked as context.
   - **Right:** the explanation for the step, and a chat for questions about it. Answers can refer back to earlier steps and earlier questions.
+- **Saves every review.** Reviews are listed at the top of the Open screen and reopen where you left off, with the step, viewed ticks, chat and Diff/Plain mode. An open review checks its branch for new commits every 5 minutes and shows a banner offering **Regenerate**. It never regenerates on its own. Reviews are kept for 7 days after you last open them, and you can delete one from the list, with Undo.
 - **Tracks usage.** Every generation and chat question is logged with its cost, turns, duration and tokens. The **Usage** screen shows totals for today, this month, and each PR. Open it from the Open screen, or mid-review from the walkthrough's top bar, which also shows what the current review has cost so far.
 
 ## Requirements
@@ -67,6 +68,7 @@ Everything is stored under the app's data folder: `~/Library/Application Support
 
 - `settings.json`: settings, with the API key encrypted
 - `runs.log`: one JSON line per generation or chat question, with cost, turns, duration and tokens
+- `reviews/`: saved reviews, one file each, listed on the Open screen
 - `worktrees/`: checkouts of the PRs you've opened
 
 ## How it fits together
