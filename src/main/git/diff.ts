@@ -126,6 +126,47 @@ export function promptDiffArgs(baseSha: string, headSha: string, omit: string[])
   return [...args, '--', '.', ...omit.map((p) => `:(exclude,literal)${p}`)]
 }
 
+const HUNK_HEADER = /^@@ -(\d+)(?:,\d+)? \+(\d+)(?:,\d+)? @@/
+
+/**
+ * Prefixes each hunk line with its head line number (cat -n style), so the agent can take
+ * segment lines from the diff instead of reading files to count them. Removed lines get no
+ * number, except in a deleted file, where they carry their base line numbers.
+ */
+export function numberDiff(diff: string): string {
+  const blank = ' '.repeat(6)
+  let inHunk = false
+  let deleted = false
+  let head = 0
+  let base = 0
+  return diff
+    .split('\n')
+    .map((line) => {
+      if (line.startsWith('diff --git ')) {
+        inHunk = false
+        deleted = false
+        return line
+      }
+      const header = HUNK_HEADER.exec(line)
+      if (header) {
+        inHunk = true
+        base = Number(header[1])
+        head = Number(header[2])
+        return line
+      }
+      if (!inHunk) {
+        if (line === '+++ /dev/null') deleted = true
+        return line
+      }
+      const mark = line[0]
+      if (mark === ' ' || mark === '+') return `${String(head++).padStart(6)}\t${line}`
+      if (mark === '-')
+        return deleted ? `${String(base++).padStart(6)}\t${line}` : `${blank}\t${line}`
+      return line
+    })
+    .join('\n')
+}
+
 export async function readFileAt(cwd: string, sha: string, path: string): Promise<string | null> {
   try {
     return await runGit(cwd, ['show', `${sha}:${path}`])

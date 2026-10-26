@@ -3,6 +3,7 @@ import type { Options, SDKMessage } from '@anthropic-ai/claude-agent-sdk'
 import { generateWalkthrough, type GenerateResult } from '../../../src/main/agent/generate'
 import { AgentRunError } from '../../../src/main/agent/options'
 import { buildWalkthroughPrompt, WALKTHROUGH_SYSTEM_PROMPT } from '../../../src/main/agent/prompt'
+import { numberDiff } from '../../../src/main/git/diff'
 import { agentWalkthroughJsonSchema, type AgentWalkthrough } from '../../../src/shared/walkthrough'
 import type { ChangedFile, ReviewTarget, Settings } from '../../../src/shared/types'
 import type { GenerateProgress } from '../../../src/shared/progress'
@@ -318,7 +319,7 @@ describe('buildWalkthroughPrompt', () => {
     for (const f of files) expect(p).toContain(f.path)
     expect(p).toContain('src/queue/task.ts')
     expect(p).toContain('renamed')
-    expect(p).toContain(diffText)
+    expect(p).toContain(numberDiff(diffText))
   })
 })
 
@@ -357,7 +358,7 @@ describe('WALKTHROUGH_SYSTEM_PROMPT', () => {
       'separated by a blank line',
       'Only backticks are rendered',
       'diff omitted',
-      'a file this PR adds'
+      'numbered diff'
     ])
       expect(WALKTHROUGH_SYSTEM_PROMPT).toContain(s)
   })

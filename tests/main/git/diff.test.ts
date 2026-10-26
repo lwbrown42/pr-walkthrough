@@ -3,6 +3,7 @@ import {
   countChangedLines,
   getChangedFiles,
   isDiffOmitted,
+  numberDiff,
   promptDiffArgs,
   readFileAt
 } from '../../../src/main/git/diff'
@@ -163,5 +164,80 @@ describe('promptDiffArgs', () => {
       const { rm } = await import('node:fs/promises')
       await rm(repo.dir, { recursive: true, force: true })
     }
+  })
+})
+
+describe('numberDiff', () => {
+  const num = (n: number | null, line: string): string =>
+    `${n === null ? '' : String(n)}`.padStart(6) + '\t' + line
+
+  it('numbers context and added lines with their head line, and leaves removed lines blank', () => {
+    const diff = [
+      'diff --git a/a.ts b/a.ts',
+      'index 1..2 100644',
+      '--- a/a.ts',
+      '+++ b/a.ts',
+      '@@ -10,3 +10,3 @@ function f() {',
+      ' keep',
+      '-old',
+      '+new',
+      ' keep2',
+      '@@ -40,1 +40,2 @@',
+      ' x',
+      '+y',
+      '\\ No newline at end of file',
+      ''
+    ].join('\n')
+    expect(numberDiff(diff).split('\n')).toEqual([
+      'diff --git a/a.ts b/a.ts',
+      'index 1..2 100644',
+      '--- a/a.ts',
+      '+++ b/a.ts',
+      '@@ -10,3 +10,3 @@ function f() {',
+      num(10, ' keep'),
+      num(null, '-old'),
+      num(11, '+new'),
+      num(12, ' keep2'),
+      '@@ -40,1 +40,2 @@',
+      num(40, ' x'),
+      num(41, '+y'),
+      '\\ No newline at end of file',
+      ''
+    ])
+  })
+
+  it('numbers an added file from 1 and a deleted file by its base lines', () => {
+    const diff = [
+      'diff --git a/n.ts b/n.ts',
+      'new file mode 100644',
+      '--- /dev/null',
+      '+++ b/n.ts',
+      '@@ -0,0 +1,2 @@',
+      '+one',
+      '+two',
+      'diff --git a/g.ts b/g.ts',
+      'deleted file mode 100644',
+      '--- a/g.ts',
+      '+++ /dev/null',
+      '@@ -1,2 +0,0 @@',
+      '-gone',
+      '-also'
+    ].join('\n')
+    expect(numberDiff(diff).split('\n')).toEqual([
+      'diff --git a/n.ts b/n.ts',
+      'new file mode 100644',
+      '--- /dev/null',
+      '+++ b/n.ts',
+      '@@ -0,0 +1,2 @@',
+      num(1, '+one'),
+      num(2, '+two'),
+      'diff --git a/g.ts b/g.ts',
+      'deleted file mode 100644',
+      '--- a/g.ts',
+      '+++ /dev/null',
+      '@@ -1,2 +0,0 @@',
+      num(1, '-gone'),
+      num(2, '-also')
+    ])
   })
 })
