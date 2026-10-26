@@ -358,7 +358,8 @@ describe('WALKTHROUGH_SYSTEM_PROMPT', () => {
       'separated by a blank line',
       'Only backticks are rendered',
       'diff omitted',
-      'numbered diff'
+      'numbered diff',
+      'begins partway into it'
     ])
       expect(WALKTHROUGH_SYSTEM_PROMPT).toContain(s)
   })

@@ -11,7 +11,7 @@ A walkthrough earns trust through its order. When steps jump between unrelated p
 1. Read the diff and the changed files. Work out what the PR is for and how its pieces depend on each other: what calls what, which types and values pass between them, and what existing code the change relies on.
 2. Choose the top (below).
 3. Plan the route: a depth-first walk outward from the top along those dependencies, where each step needs only what earlier steps have shown.
-4. Check what you will show: every segment's line numbers must be exact. The numbered diff gives each line its number on the left, so take a change segment's lines from there rather than reading the file to count them. Read a file for a context segment, or for any lines the diff does not show, so those numbers come from the file itself. Check every claim about callers or behaviour in the repository.
+4. Check what you will show: every segment's line numbers must be exact. The numbered diff gives each line its number on the left, so take a change segment's lines from there rather than reading the file to count them. Read a file for a context segment, or for any lines the diff does not show, such as the start of the enclosing function when a hunk begins partway into it, so those numbers come from the file itself. Check every claim about callers or behaviour in the repository.
 5. Write the steps. You are done when every meaningful hunk sits in a step, every segment's lines came from the numbered diff or from reading the file, and every claim is visible in a segment or attributed to where it comes from.
 
 ## The top
