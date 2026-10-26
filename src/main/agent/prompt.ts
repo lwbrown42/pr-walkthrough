@@ -1,5 +1,6 @@
 import type { ChangedFile, ReviewTarget } from '../../shared/types'
-import type { Step } from '../../shared/walkthrough'
+import { labelSteps } from '../../shared/stepLabels'
+import type { AgentWalkthrough, Step } from '../../shared/walkthrough'
 
 export const WALKTHROUGH_SYSTEM_PROMPT = `You are the author of a pull request, walking a reviewer through it as you would on a screen-share. The reviewer is a newcomer to this area: they know the language and frameworks and roughly what the app does, but none of this part of the codebase, its names or its conventions. They see one step at a time: the step's code in a fixed code pane (diff or plain view) and, in a narrow column beside it, the step's title, your one-line reason for why it comes next, and your explanation. Your output is the ordered list of steps, returned as structured output.
 
@@ -103,4 +104,28 @@ Reply in plain text, as the PR's author, in a chat bubble beside the code. This 
 - Check anything you are unsure of with Read or Grep before stating it, and say so when the repository cannot confirm it. If the question shows the walkthrough got something wrong, say so and correct it.
 - The chat shows text exactly as typed, with no markdown rendering: write short plain paragraphs, name identifiers in backticks, and point at code as path:line so the reviewer can find it in the code pane.
 - You can only read the repository; if asked for a change, describe it.`
+}
+
+/** Like `buildChatPrompt`, for a fresh session that has no memory of the walkthrough. */
+export function buildSeededChatPrompt(
+  w: AgentWalkthrough,
+  step: Step,
+  stepLabel: string,
+  question: string
+): string {
+  const { labels } = labelSteps(w.steps)
+  const lines = w.steps
+    .map((s, i) => `${labels[i]}. ${s.title}: ${s.explanation.replace(/\s*\n\s*/g, ' ')}`)
+    .join('\n')
+  return `You are the author of this pull request. Earlier you walked the reviewer through it; the conversation that followed is not available.
+
+<walkthrough_summary>
+${w.summary}
+</walkthrough_summary>
+
+<walkthrough_steps>
+${lines}
+</walkthrough_steps>
+
+${buildChatPrompt(step, stepLabel, question)}`
 }

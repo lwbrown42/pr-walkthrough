@@ -1,11 +1,14 @@
 import { query, type SDKResultMessage } from '@anthropic-ai/claude-agent-sdk'
 import type { Settings, TokenUsage } from '../../shared/types'
-import type { Step } from '../../shared/walkthrough'
+import type { AgentWalkthrough, Step } from '../../shared/walkthrough'
 import { AgentRunError, buildAgentOptions, resultError, usageOf } from './options'
-import { buildChatPrompt } from './prompt'
+import { buildChatPrompt, buildSeededChatPrompt } from './prompt'
 
 export interface AskArgs {
-  sessionId: string
+  /** Null starts a fresh session, seeded from `walkthrough`. */
+  sessionId: string | null
+  /** Required when `sessionId` is null. */
+  walkthrough?: AgentWalkthrough
   worktreePath: string
   step: Step
   /** The label the reviewer sees, e.g. '2' or '1a'. */
@@ -34,15 +37,23 @@ export async function askAboutStep(args: AskArgs): Promise<AskResult> {
     step,
     stepLabel,
     question,
+    walkthrough,
     settings,
     onText,
     queryFn = query
   } = args
+  if (sessionId === null && !walkthrough) {
+    throw new AgentRunError('failed', 'Cannot start a fresh chat without the walkthrough.')
+  }
   const options = {
     ...buildAgentOptions(settings, worktreePath),
-    resume: sessionId,
+    ...(sessionId === null ? {} : { resume: sessionId }),
     includePartialMessages: true
   }
+  const prompt =
+    walkthrough && sessionId === null
+      ? buildSeededChatPrompt(walkthrough, step, stepLabel, question)
+      : buildChatPrompt(step, stepLabel, question)
 
   // Text of each top-level assistant message, in order; turns are joined with a blank line.
   const turns = new Map<string, string>()
@@ -58,7 +69,7 @@ export async function askAboutStep(args: AskArgs): Promise<AskResult> {
   let final: SDKResultMessage | undefined
   try {
     for await (const msg of queryFn({
-      prompt: buildChatPrompt(step, stepLabel, question),
+      prompt,
       options
     })) {
       // Subagent output is not part of the answer.

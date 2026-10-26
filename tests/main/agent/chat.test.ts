@@ -2,9 +2,9 @@ import { describe, expect, it, vi } from 'vitest'
 import type { Options, SDKMessage } from '@anthropic-ai/claude-agent-sdk'
 import { askAboutStep, type AskResult } from '../../../src/main/agent/chat'
 import { AgentRunError } from '../../../src/main/agent/options'
-import { buildChatPrompt } from '../../../src/main/agent/prompt'
+import { buildChatPrompt, buildSeededChatPrompt } from '../../../src/main/agent/prompt'
 import type { Settings } from '../../../src/shared/types'
-import type { Step } from '../../../src/shared/walkthrough'
+import type { AgentWalkthrough, Step } from '../../../src/shared/walkthrough'
 
 const settings: Settings = {
   apiKey: 'sk-test',
@@ -236,5 +236,55 @@ describe('buildChatPrompt pane listing', () => {
     expect(p).toContain('- src/queue/job.ts:3-5\n')
     expect(p).toContain('- src/queue/run.ts:10-20 (context)')
     expect(p).toContain('<question>\nWhy?\n</question>')
+  })
+})
+
+const detour: Step = {
+  id: 'helper',
+  title: 'Helper detour',
+  parentId: 'job',
+  whyNext: 'y',
+  explanation: 'Line one.\nLine two.',
+  segments: []
+}
+const walkthrough: AgentWalkthrough = { summary: 'Adds retry policy.', steps: [step, detour] }
+
+describe('buildSeededChatPrompt', () => {
+  it('labels detours and wraps the chat prompt', () => {
+    const p = buildSeededChatPrompt(walkthrough, detour, '1a', 'Why?')
+    expect(p.startsWith('You are the author of this pull request.')).toBe(true)
+    expect(p).toContain('<walkthrough_summary>\nAdds retry policy.\n</walkthrough_summary>')
+    expect(p).toContain('1. Job carries the policy: Jobs carry the policy.')
+    expect(p).toContain('1a. Helper detour: Line one. Line two.')
+    expect(p).toContain(buildChatPrompt(detour, '1a', 'Why?'))
+  })
+})
+
+describe('askAboutStep without a session', () => {
+  const askFresh = (q: never, w?: AgentWalkthrough): Promise<AskResult> =>
+    askAboutStep({
+      sessionId: null,
+      walkthrough: w,
+      worktreePath: '/tmp/wt',
+      step,
+      stepLabel: '1',
+      question: 'Why here?',
+      settings,
+      queryFn: q
+    })
+
+  it('omits resume and sends the seeded prompt', async () => {
+    const q = fakeQuery([assistantText('Hi'), result()])
+    await askFresh(q.fn, walkthrough)
+    expect(q.calls[0].options!.resume).toBeUndefined()
+    const prompt = q.calls[0].prompt as string
+    expect(prompt).toContain('<walkthrough_summary>')
+    expect(prompt).toContain('Job carries the policy')
+    expect(prompt).toContain('Helper detour')
+    expect(prompt).toContain('<question>')
+  })
+
+  it('fails without the walkthrough', async () => {
+    await rejectsWith(askFresh(fakeQuery([]).fn), 'failed')
   })
 })
