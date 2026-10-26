@@ -466,7 +466,9 @@ export function createHandlers(deps: HandlerDeps): Handlers {
                   walkthrough: { summary: asked.summary, steps: asked.steps },
                   stepDiff: await stepDiffFor(asked, step)
                 }
-              : {}
+              : asked.chatUsage
+                ? { sessionUsage: asked.chatUsage }
+                : {}
           return deps.askAboutStep({
             sessionId: resume,
             ...seed,
@@ -502,7 +504,11 @@ export function createHandlers(deps: HandlerDeps): Handlers {
           tokensByModel: result.tokensByModel
         })
         if (walkthrough === asked) {
-          walkthrough = { ...asked, chatSessionId: result.sessionId }
+          walkthrough = {
+            ...asked,
+            chatSessionId: result.sessionId,
+            chatUsage: result.sessionUsage
+          }
           sessionVerified = true
         }
         if (askedReviewId) {
@@ -513,7 +519,11 @@ export function createHandlers(deps: HandlerDeps): Handlers {
             deps.reviews.save({
               ...review,
               walkthrough: stillAsked
-                ? { ...review.walkthrough, chatSessionId: result.sessionId }
+                ? {
+                    ...review.walkthrough,
+                    chatSessionId: result.sessionId,
+                    chatUsage: result.sessionUsage
+                  }
                 : review.walkthrough,
               costUsd: review.costUsd + (result.costUsd ?? 0)
             })

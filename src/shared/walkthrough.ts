@@ -1,5 +1,5 @@
 import { z } from 'zod'
-import type { ChangedFile, ReviewTarget } from './types'
+import type { ChangedFile, ReviewTarget, SessionUsage } from './types'
 
 /** Lines are 1-based, inclusive, in the HEAD file; for a deleted file, 'change' lines refer to BASE. */
 export const CodeSegment = z.object({
@@ -37,6 +37,8 @@ export type Walkthrough = AgentWalkthrough & {
   sessionId: string
   /** The chat's own agent session, once a question has started one. */
   chatSessionId?: string
+  /** What the chat session has spent so far; a resumed result reports this plus the new call. */
+  chatUsage?: SessionUsage
 }
 
 export const agentWalkthroughJsonSchema = z.toJSONSchema(AgentWalkthrough, { target: 'draft-7' })

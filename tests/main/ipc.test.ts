@@ -4,7 +4,13 @@ import { createHandlers, type HandlerDeps } from '../../src/main/ipc'
 import { AgentRunError } from '../../src/main/agent/options'
 import type { ReviewStore } from '../../src/main/reviews/store'
 import { reviewKey, type ReviewState, type SavedReview } from '../../src/shared/reviews'
-import type { ChangedFile, ReviewTarget, RunLogEntry, Settings } from '../../src/shared/types'
+import type {
+  ChangedFile,
+  ReviewTarget,
+  RunLogEntry,
+  SessionUsage,
+  Settings
+} from '../../src/shared/types'
 import type { Step } from '../../src/shared/walkthrough'
 
 const target: ReviewTarget = {
@@ -109,7 +115,8 @@ function setup(
       turns: 2,
       durationMs: 700,
       tokens: { input: 5, output: 7, cacheRead: 900, cacheCreation: 0 },
-      tokensByModel: null
+      tokensByModel: null,
+      sessionUsage: { costUsd: 0.1, tokensByModel: {} }
     })),
     resolveLocalBranch: vi.fn(async () => target),
     resolveGithubPr: vi.fn(async () => target),
@@ -798,6 +805,33 @@ describe('saved reviews', () => {
     expect(log[1].reviewId).toBe('new-id')
   })
 
+  it("resumes the chat with the session's spend so far and saves the new totals", async () => {
+    const reviews = memStore()
+    const totals = (costUsd: number): SessionUsage => ({
+      costUsd,
+      tokensByModel: { m: { input: 1, output: 2, cacheRead: 3, cacheCreation: 4 } }
+    })
+    const askAboutStep = vi.fn<HandlerDeps['askAboutStep']>().mockImplementation(async (args) => ({
+      answer: 'yes',
+      sessionId: 'chat-sess',
+      costUsd: 0.1,
+      turns: 1,
+      durationMs: 5,
+      tokens: null,
+      tokensByModel: null,
+      sessionUsage: totals(args.sessionUsage ? 0.3 : 0.2)
+    }))
+    const { h, log } = setup({ reviews, askAboutStep })
+    await h.generate(target)
+    await h.ask({ stepId: 's1', question: 'why?' })
+    await h.ask({ stepId: 's1', question: 'again?' })
+    expect(askAboutStep.mock.calls[0][0]).not.toHaveProperty('sessionUsage')
+    expect(askAboutStep.mock.calls[1][0].sessionUsage).toEqual(totals(0.2))
+    expect(reviews.get('new-id')!.walkthrough.chatUsage).toEqual(totals(0.3))
+    expect(log.map((e) => e.costUsd)).toEqual([0.5, 0.1, 0.1])
+    expect(reviews.get('new-id')!.costUsd).toBeCloseTo(0.7)
+  })
+
   it('ask does not retry a failed resume once the session is known to work', async () => {
     const askAboutStep = vi
       .fn<HandlerDeps['askAboutStep']>()
@@ -808,7 +842,8 @@ describe('saved reviews', () => {
         turns: 2,
         durationMs: 700,
         tokens: null,
-        tokensByModel: null
+        tokensByModel: null,
+        sessionUsage: { costUsd: 0.1, tokensByModel: {} }
       })
       .mockRejectedValue(new AgentRunError('failed', 'no session'))
     const { h, log } = setup({ askAboutStep })
@@ -834,7 +869,8 @@ describe('saved reviews', () => {
         turns: 2,
         durationMs: 700,
         tokens: null,
-        tokensByModel: null
+        tokensByModel: null,
+        sessionUsage: { costUsd: 0.1, tokensByModel: {} }
       })
     const { h, log } = setup({ reviews, askAboutStep })
     await h.reopenReview('old-id')

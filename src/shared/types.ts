@@ -47,6 +47,12 @@ export interface TokenUsage {
   cacheCreation: number
 }
 
+/** What an agent session has spent so far, as its latest result reported it. */
+export interface SessionUsage {
+  costUsd: number
+  tokensByModel: Record<string, TokenUsage>
+}
+
 export interface RunLogEntry {
   at: string
   kind: 'generate' | 'chat'

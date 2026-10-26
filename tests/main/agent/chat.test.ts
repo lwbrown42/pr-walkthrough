@@ -311,3 +311,81 @@ describe('askAboutStep without a session', () => {
     await rejectsWith(askFresh(fakeQuery([]).fn), 'failed')
   })
 })
+
+describe('usage of a resumed session', () => {
+  const opus = (inputTokens: number, outputTokens: number): Record<string, number> => ({
+    inputTokens,
+    outputTokens,
+    cacheReadInputTokens: 1000,
+    cacheCreationInputTokens: 0,
+    webSearchRequests: 0,
+    costUSD: 0,
+    contextWindow: 200000,
+    maxOutputTokens: 32000
+  })
+  const prior = {
+    costUsd: 0.5,
+    tokensByModel: {
+      'claude-opus-5-5': { input: 10, output: 100, cacheRead: 1000, cacheCreation: 0 }
+    }
+  }
+  const resumeWith = (q: never): Promise<AskResult> =>
+    askAboutStep({
+      sessionId: 's1',
+      sessionUsage: prior,
+      worktreePath: '/tmp/wt',
+      step,
+      stepLabel: '1',
+      question: 'Why here?',
+      settings,
+      queryFn: q
+    })
+
+  it("reports only this call's spend, and the session's new totals", async () => {
+    const q = fakeQuery([
+      assistantText('Because.'),
+      result({ total_cost_usd: 0.9, modelUsage: { 'claude-opus-5-5': opus(15, 160) } })
+    ])
+    const r = await resumeWith(q.fn)
+    expect(r.costUsd).toBeCloseTo(0.4)
+    expect(r.tokensByModel).toEqual({
+      'claude-opus-5-5': { input: 5, output: 60, cacheRead: 0, cacheCreation: 0 }
+    })
+    expect(r.tokens).toEqual({ input: 5, output: 60, cacheRead: 0, cacheCreation: 0 })
+    expect(r.sessionUsage.costUsd).toBeCloseTo(0.9)
+    expect(r.sessionUsage.tokensByModel['claude-opus-5-5'].output).toBe(160)
+  })
+
+  it("reports only this call's spend when the call fails", async () => {
+    const q = fakeQuery([
+      result({
+        subtype: 'error_max_budget_usd',
+        total_cost_usd: 0.9,
+        modelUsage: { 'claude-opus-5-5': opus(15, 160) }
+      })
+    ])
+    const err = await resumeWith(q.fn).then(
+      () => null,
+      (e: unknown) => e as AgentRunError
+    )
+    expect(err?.reason).toBe('max_budget')
+    expect(err?.costUsd).toBeCloseTo(0.4)
+    expect(err?.tokens).toEqual({ input: 5, output: 60, cacheRead: 0, cacheCreation: 0 })
+  })
+
+  it('reports the whole spend of a fresh session as its own', async () => {
+    const q = fakeQuery([assistantText('Hi'), result({ total_cost_usd: 0.07 })])
+    const r = await askAboutStep({
+      sessionId: null,
+      walkthrough,
+      worktreePath: '/tmp/wt',
+      step,
+      stepLabel: '1',
+      question: 'Why here?',
+      settings,
+      queryFn: q.fn
+    })
+    expect(r.costUsd).toBeCloseTo(0.07)
+    expect(r.sessionUsage).toEqual({ costUsd: 0.07, tokensByModel: {} })
+  })
+})

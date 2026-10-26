@@ -1,7 +1,8 @@
 import { query, type SDKResultMessage } from '@anthropic-ai/claude-agent-sdk'
-import type { Settings, TokenUsage } from '../../shared/types'
+import type { SessionUsage, Settings, TokenUsage } from '../../shared/types'
+import { addTokens, emptyTokens } from '../../shared/usage'
 import type { AgentWalkthrough, Step } from '../../shared/walkthrough'
-import { AgentRunError, buildAgentOptions, resultError, usageOf } from './options'
+import { AgentRunError, buildAgentOptions, resultError, usageOf, type RunUsage } from './options'
 import { buildChatPrompt, buildSeededChatPrompt } from './prompt'
 
 export interface AskArgs {
@@ -11,6 +12,8 @@ export interface AskArgs {
   walkthrough?: AgentWalkthrough
   /** For a fresh session: the diff of the step's changed files. */
   stepDiff?: string
+  /** What the resumed session had spent before this call (a resumed result reports it all). */
+  sessionUsage?: SessionUsage
   worktreePath: string
   step: Step
   /** The label the reviewer sees, e.g. '2' or '1a'. */
@@ -21,6 +24,7 @@ export interface AskArgs {
   queryFn?: typeof query
 }
 
+/** Cost and tokens are this call's own; `sessionUsage` is the session's total after it. */
 export interface AskResult {
   answer: string
   sessionId: string
@@ -29,6 +33,32 @@ export interface AskResult {
   durationMs: number | null
   tokens: TokenUsage | null
   tokensByModel: Record<string, TokenUsage> | null
+  sessionUsage: SessionUsage
+}
+
+/** `total` less what the session had spent before (`prior`): the call's own usage. */
+function sinceSession(total: RunUsage, prior: SessionUsage | undefined): RunUsage {
+  if (!prior) return total
+  const own: RunUsage = { ...total }
+  if (total.costUsd !== undefined) own.costUsd = Math.max(0, total.costUsd - prior.costUsd)
+  if (total.tokensByModel) {
+    own.tokensByModel = {}
+    let sum = emptyTokens()
+    for (const [model, t] of Object.entries(total.tokensByModel)) {
+      const p = prior.tokensByModel[model] ?? emptyTokens()
+      const d: TokenUsage = {
+        input: Math.max(0, t.input - p.input),
+        output: Math.max(0, t.output - p.output),
+        cacheRead: Math.max(0, t.cacheRead - p.cacheRead),
+        cacheCreation: Math.max(0, t.cacheCreation - p.cacheCreation)
+      }
+      if (d.input + d.output + d.cacheRead + d.cacheCreation === 0) continue
+      own.tokensByModel[model] = d
+      sum = addTokens(sum, d)
+    }
+    own.tokens = sum
+  }
+  return own
 }
 
 /** Asks a question about one step, resuming the chat's session or starting one seeded from the walkthrough. */
@@ -41,6 +71,7 @@ export async function askAboutStep(args: AskArgs): Promise<AskResult> {
     question,
     walkthrough,
     stepDiff,
+    sessionUsage,
     settings,
     onText,
     queryFn = query
@@ -108,13 +139,14 @@ export async function askAboutStep(args: AskArgs): Promise<AskResult> {
   }
 
   if (!final) throw new AgentRunError('failed', 'The agent ended without a result.')
+  const total = usageOf(final)
+  const usage = sinceSession(total, sessionUsage)
   const error = resultError(final)
-  if (error) throw error
+  if (error) throw new AgentRunError(error.reason, error.message, { usage })
 
   // The success result carries the final assistant text; fall back to the collected turns.
   const fromResult = final.subtype === 'success' ? final.result : ''
   const answer = fromResult || [...turns.values()].filter((t) => t !== '').join('\n\n')
-  const usage = usageOf(final)
   return {
     answer,
     sessionId: final.session_id,
@@ -122,6 +154,10 @@ export async function askAboutStep(args: AskArgs): Promise<AskResult> {
     turns: usage.turns ?? null,
     durationMs: usage.durationMs ?? null,
     tokens: usage.tokens ?? null,
-    tokensByModel: usage.tokensByModel ?? null
+    tokensByModel: usage.tokensByModel ?? null,
+    sessionUsage: {
+      costUsd: total.costUsd ?? sessionUsage?.costUsd ?? 0,
+      tokensByModel: total.tokensByModel ?? sessionUsage?.tokensByModel ?? {}
+    }
   }
 }
