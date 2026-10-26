@@ -48,6 +48,7 @@ const lineCounts = {
 const settings: Settings = {
   apiKey: 'sk-test',
   model: 'claude-opus-5-5',
+  chatModel: 'claude-sonnet-5-5',
   maxTurns: 60,
   maxBudgetUsd: 3
 }

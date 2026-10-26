@@ -33,6 +33,7 @@ describe('settings store', () => {
     expect(createSettingsStore(dir, makeCrypto()).get()).toEqual({
       apiKey: null,
       model: 'claude-opus-5-5',
+      chatModel: 'claude-sonnet-5-5',
       maxTurns: 60,
       maxBudgetUsd: 3
     })

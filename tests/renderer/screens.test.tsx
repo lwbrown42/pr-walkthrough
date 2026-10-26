@@ -8,6 +8,7 @@ vi.mock('../../src/renderer/src/components/CodePane', () => ({ default: () => nu
 
 const settings: PublicSettings = {
   model: 'm',
+  chatModel: 'cm',
   maxTurns: 30,
   maxBudgetUsd: 5,
   hasApiKey: true,
@@ -288,6 +289,20 @@ describe('screens', () => {
     expect(await screen.findByRole('button', { name: 'Generate' })).toBeTruthy()
     await user.click(screen.getByRole('tab', { name: 'GitHub PR' }))
     expect(screen.queryByRole('button', { name: 'Generate' })).toBeNull()
+  })
+
+  it('saves the chat model from Settings', async () => {
+    const user = userEvent.setup()
+    render(<App />)
+    await user.click(await screen.findByRole('button', { name: 'Settings' }))
+    const field = await screen.findByLabelText('Chat model')
+    expect((field as HTMLInputElement).value).toBe('cm')
+    await user.clear(field)
+    await user.type(field, 'claude-haiku-5-5')
+    await user.click(screen.getByRole('button', { name: 'Save' }))
+    expect(api.saveSettings).toHaveBeenCalledWith(
+      expect.objectContaining({ chatModel: 'claude-haiku-5-5' })
+    )
   })
 
   it('blocks saving when maxTurns is empty', async () => {

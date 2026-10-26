@@ -19,6 +19,7 @@ type Stored = Omit<Settings, 'apiKey'> & { apiKeyEncrypted?: string | null }
 
 const DEFAULTS: Omit<Settings, 'apiKey'> = {
   model: 'claude-opus-5-5',
+  chatModel: 'claude-sonnet-5-5',
   maxTurns: 60,
   maxBudgetUsd: 3
 }

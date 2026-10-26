@@ -30,6 +30,7 @@ afterEach(cleanup)
 
 const settings: PublicSettings = {
   model: 'm',
+  chatModel: 'cm',
   maxTurns: 30,
   maxBudgetUsd: 5,
   hasApiKey: true,

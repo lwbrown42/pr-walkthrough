@@ -37,6 +37,8 @@ export type Walkthrough = AgentWalkthrough & {
   sessionId: string
   /** The chat's own agent session, once a question has started one. */
   chatSessionId?: string
+  /** The model that session runs on; a different chat model starts a new session. */
+  chatModel?: string
   /** What the chat session has spent so far; a resumed result reports this plus the new call. */
   chatUsage?: SessionUsage
 }

@@ -81,6 +81,9 @@ export async function askAboutStep(args: AskArgs): Promise<AskResult> {
   }
   const options = {
     ...buildAgentOptions(settings, worktreePath),
+    model: settings.chatModel,
+    // Chat answers are short and mostly read code; Anthropic suggests low effort for chat.
+    effort: 'low' as const,
     ...(sessionId === null ? {} : { resume: sessionId }),
     includePartialMessages: true
   }

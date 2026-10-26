@@ -34,6 +34,8 @@ export interface ReviewTarget {
 export interface Settings {
   apiKey: string | null
   model: string
+  /** The model that answers chat questions; it runs in its own session, so it can differ. */
+  chatModel: string
   maxTurns: number
   maxBudgetUsd: number
   lastRepoPath?: string

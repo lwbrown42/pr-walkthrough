@@ -80,7 +80,13 @@ function setup(
   changed = 10
 ): { h: ReturnType<typeof createHandlers>; deps: HandlerDeps; log: RunLogEntry[] } {
   const log: RunLogEntry[] = []
-  const settings: Settings = { apiKey: 'sk-secret', model: 'm', maxTurns: 1, maxBudgetUsd: 1 }
+  const settings: Settings = {
+    apiKey: 'sk-secret',
+    model: 'm',
+    chatModel: 'cm',
+    maxTurns: 1,
+    maxBudgetUsd: 1
+  }
   let t = 1000
   const deps: HandlerDeps = {
     settings: {
@@ -832,6 +838,21 @@ describe('saved reviews', () => {
     expect(reviews.get('new-id')!.costUsd).toBeCloseTo(0.7)
   })
 
+  it('saves the chat model with the session and starts fresh when it changes', async () => {
+    const reviews = memStore()
+    const { h, deps } = setup({ reviews })
+    await h.generate(target)
+    await h.ask({ stepId: 's1', question: 'why?' })
+    expect(reviews.get('new-id')!.walkthrough.chatModel).toBe('cm')
+    await h.ask({ stepId: 's1', question: 'again?' })
+    deps.settings.get().chatModel = 'other'
+    await h.ask({ stepId: 's1', question: 'and now?' })
+    const calls = vi.mocked(deps.askAboutStep).mock.calls
+    expect(calls.map((c) => c[0].sessionId)).toEqual([null, 'sess2', null])
+    expect(calls[2][0]).not.toHaveProperty('sessionUsage')
+    expect(reviews.get('new-id')!.walkthrough.chatModel).toBe('other')
+  })
+
   it('ask does not retry a failed resume once the session is known to work', async () => {
     const askAboutStep = vi
       .fn<HandlerDeps['askAboutStep']>()
@@ -858,6 +879,7 @@ describe('saved reviews', () => {
   it('ask retries once in a fresh session when resume fails', async () => {
     const saved = savedReview()
     saved.walkthrough.chatSessionId = 'old-chat'
+    saved.walkthrough.chatModel = 'cm'
     const reviews = memStore([saved])
     const askAboutStep = vi
       .fn<HandlerDeps['askAboutStep']>()
@@ -932,6 +954,7 @@ describe('review handlers', () => {
   it("reopenReview updates lastOpenedAt and makes ask use the review's chat session", async () => {
     const saved = savedReview()
     saved.walkthrough.chatSessionId = 'old-chat'
+    saved.walkthrough.chatModel = 'cm'
     const reviews = memStore([saved])
     const { h, deps } = setup({ reviews, ensureWorktree: vi.fn(async () => '/wts/old') })
     const res = (await h.reopenReview('old-id')) as SavedReview

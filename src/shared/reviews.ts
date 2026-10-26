@@ -58,6 +58,7 @@ export const SavedReviewSchema = z.object({
     changedLines: z.number(),
     sessionId: z.string(),
     chatSessionId: z.string().optional(),
+    chatModel: z.string().optional(),
     chatUsage: z
       .object({
         costUsd: z.number(),

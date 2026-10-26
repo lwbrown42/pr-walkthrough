@@ -9,6 +9,7 @@ import type { AgentWalkthrough, Step } from '../../../src/shared/walkthrough'
 const settings: Settings = {
   apiKey: 'sk-test',
   model: 'claude-opus-5-5',
+  chatModel: 'claude-sonnet-5-5',
   maxTurns: 60,
   maxBudgetUsd: 3
 }
@@ -107,6 +108,8 @@ describe('askAboutStep', () => {
     expect(o.resume).toBe('s1')
     expect(o).not.toHaveProperty('outputFormat')
     expect(o.tools).toEqual(['Read', 'Grep', 'Glob'])
+    expect(o.model).toBe('claude-sonnet-5-5')
+    expect(o.effort).toBe('low')
     expect(o.cwd).toBe('/tmp/wt')
     expect(q.calls[0].prompt).toBe(buildChatPrompt(step, '1a', 'Why here?'))
   })

@@ -457,6 +457,7 @@ export function createHandlers(deps: HandlerDeps): Handlers {
         const stepIndex = asked.steps.findIndex((s) => s.id === stepId)
         if (stepIndex < 0) throw new Error(`Unknown step: ${stepId}`)
         const step = asked.steps[stepIndex]
+        const settings = deps.settings.get()
         // Null starts a fresh session seeded from the walkthrough: much cheaper than resuming
         // the generation's long session, whose cache a chat would rebuild in full.
         const ask = async (resume: string | null): ReturnType<typeof deps.askAboutStep> => {
@@ -476,12 +477,13 @@ export function createHandlers(deps: HandlerDeps): Handlers {
             step,
             stepLabel: labelSteps(asked.steps).labels[stepIndex],
             question,
-            settings: deps.settings.get(),
+            settings,
             onText: (chunk) => deps.send(IPC.chatText, chunk)
           })
         }
         let result: Awaited<ReturnType<typeof deps.askAboutStep>>
-        if (!asked.chatSessionId) {
+        // A session on another model would rebuild its cache anyway and lose its thinking.
+        if (!asked.chatSessionId || asked.chatModel !== settings.chatModel) {
           result = await ask(null)
         } else {
           try {
@@ -507,6 +509,7 @@ export function createHandlers(deps: HandlerDeps): Handlers {
           walkthrough = {
             ...asked,
             chatSessionId: result.sessionId,
+            chatModel: settings.chatModel,
             chatUsage: result.sessionUsage
           }
           sessionVerified = true
@@ -522,6 +525,7 @@ export function createHandlers(deps: HandlerDeps): Handlers {
                 ? {
                     ...review.walkthrough,
                     chatSessionId: result.sessionId,
+                    chatModel: settings.chatModel,
                     chatUsage: result.sessionUsage
                   }
                 : review.walkthrough,

@@ -10,6 +10,7 @@ interface Props {
 export default function Setup({ settings, onSaved, onCancel }: Props): React.JSX.Element {
   const [apiKey, setApiKey] = useState('')
   const [model, setModel] = useState(settings.model)
+  const [chatModel, setChatModel] = useState(settings.chatModel)
   const [maxTurns, setMaxTurns] = useState(String(settings.maxTurns))
   const [maxBudgetUsd, setMaxBudgetUsd] = useState(String(settings.maxBudgetUsd))
   const [error, setError] = useState<string>()
@@ -20,6 +21,7 @@ export default function Setup({ settings, onSaved, onCancel }: Props): React.JSX
     const turns = Number(maxTurns)
     const budget = Number(maxBudgetUsd)
     if (model.trim() === '') return setError('Model is required.')
+    if (chatModel.trim() === '') return setError('Chat model is required.')
     if (maxTurns.trim() === '' || !Number.isInteger(turns) || turns <= 0)
       return setError('Max turns must be a positive whole number.')
     if (maxBudgetUsd.trim() === '' || !Number.isFinite(budget) || budget <= 0)
@@ -27,6 +29,7 @@ export default function Setup({ settings, onSaved, onCancel }: Props): React.JSX
     setError(undefined)
     const patch: Parameters<typeof window.api.saveSettings>[0] = {
       model: model.trim(),
+      chatModel: chatModel.trim(),
       maxTurns: turns,
       maxBudgetUsd: budget
     }
@@ -54,6 +57,10 @@ export default function Setup({ settings, onSaved, onCancel }: Props): React.JSX
       <label>
         Model
         <input value={model} onChange={(e) => setModel(e.target.value)} />
+      </label>
+      <label>
+        Chat model
+        <input value={chatModel} onChange={(e) => setChatModel(e.target.value)} />
       </label>
       <label>
         Max turns
