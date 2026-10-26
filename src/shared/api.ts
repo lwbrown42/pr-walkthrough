@@ -1,5 +1,6 @@
 import type { ChangedFile, ChatMessage, ReviewTarget, RunLogEntry, Settings } from './types'
 import type { GenerateProgress } from './progress'
+import type { SavedReview } from './reviews'
 import type { UsageTotals } from './usage'
 import type { Walkthrough } from './walkthrough'
 
@@ -13,6 +14,8 @@ export interface OpenResult {
   changedLines: number
   /** changedLines > CHANGED_LINES_LIMIT */
   overLimit: boolean
+  /** A saved review with the same key, if any. newCommits is null when they can't be counted. */
+  saved?: { id: string; progress: string; lastOpenedAt: string; newCommits: number | null }
 }
 
 export type ApiError = { error: { message: string; reason?: string } }
@@ -27,7 +30,8 @@ export interface PreloadApi {
   /** Native folder dialog. */
   pickRepo(): Promise<string | null>
   openTarget(req: OpenRequest): Promise<OpenResult | ApiError>
-  generate(target: ReviewTarget): Promise<Walkthrough | ApiError>
+  /** Generates a walkthrough and saves it, replacing any saved review with the same key. */
+  generate(target: ReviewTarget): Promise<SavedReview | ApiError>
   /** Aborts the in-flight generate(); it then resolves with reason 'cancelled'. */
   cancelGenerate(): Promise<void>
   onGenerateProgress(cb: (p: GenerateProgressEvent) => void): () => void
@@ -38,7 +42,7 @@ export interface PreloadApi {
   readFile(req: { sha: string; path: string }): Promise<string | null>
   /** Every logged generation and chat question, oldest first. */
   getRunLog(): Promise<RunLogEntry[]>
-  /** Totals for the review in progress (its generation plus chat questions since). */
+  /** Totals for the open saved review: every generation and chat question logged under its id. */
   getReviewUsage(): Promise<UsageTotals>
 }
 

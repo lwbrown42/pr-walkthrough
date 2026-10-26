@@ -1,14 +1,14 @@
 import { useEffect, useRef, useState } from 'react'
 import type { GenerateProgressEvent, OpenResult } from '../../../shared/api'
 import type { GenerateStage } from '../../../shared/progress'
-import type { Walkthrough } from '../../../shared/walkthrough'
+import type { SavedReview } from '../../../shared/reviews'
 import { friendlyError } from '../errors'
 
 interface Props {
   opened: OpenResult
   /** The run's caps, shown so the reader can see a run nearing one. */
   limits: { maxTurns: number; maxBudgetUsd: number }
-  onDone: (w: Walkthrough) => void
+  onDone: (review: SavedReview) => void
   onError: (message: string) => void
   /** The reviewer cancelled; not an error. */
   onCancelled: () => void

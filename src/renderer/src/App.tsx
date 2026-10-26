@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react'
 import type { OpenResult, PublicSettings } from '../../shared/api'
+import type { SavedReview } from '../../shared/reviews'
 import type { Walkthrough as WalkthroughData } from '../../shared/walkthrough'
 import Generating from './screens/Generating'
 import Open from './screens/Open'
@@ -11,7 +12,7 @@ type State =
   | { screen: 'setup' }
   | { screen: 'open'; opened?: OpenResult; error?: string }
   | { screen: 'generating'; opened: OpenResult }
-  | { screen: 'walkthrough'; walkthrough: WalkthroughData }
+  | { screen: 'walkthrough'; walkthrough: WalkthroughData; review?: SavedReview }
   | { screen: 'usage' }
 
 function App(): React.JSX.Element | null {
@@ -84,7 +85,9 @@ function App(): React.JSX.Element | null {
         <Generating
           opened={state.opened}
           limits={{ maxTurns: settings.maxTurns, maxBudgetUsd: settings.maxBudgetUsd }}
-          onDone={(walkthrough) => setState({ screen: 'walkthrough', walkthrough })}
+          onDone={(review) =>
+            setState({ screen: 'walkthrough', walkthrough: review.walkthrough, review })
+          }
           onError={(error) => setState({ screen: 'open', opened: state.opened, error })}
           onCancelled={() => setState({ screen: 'open', opened: state.opened })}
         />

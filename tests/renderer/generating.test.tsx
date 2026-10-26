@@ -1,7 +1,8 @@
-import { act, cleanup, render, screen, within } from '@testing-library/react'
+import { act, cleanup, render, screen, waitFor, within } from '@testing-library/react'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import Generating from '../../src/renderer/src/screens/Generating'
 import type { GenerateProgressEvent, OpenResult, PreloadApi } from '../../src/shared/api'
+import type { SavedReview } from '../../src/shared/reviews'
 
 afterEach(cleanup)
 
@@ -42,12 +43,12 @@ beforeEach(() => {
   } as unknown as PreloadApi
 })
 
-const show = (): void => {
+const show = (onDone = vi.fn()): void => {
   render(
     <Generating
       opened={{ ...opened, files: Array(12).fill(null) as never }}
       limits={{ maxTurns: 60, maxBudgetUsd: 3 }}
-      onDone={vi.fn()}
+      onDone={onDone}
       onError={vi.fn()}
       onCancelled={vi.fn()}
     />
@@ -119,5 +120,16 @@ describe('Generating', () => {
     expect(screen.getByText('31')).toBeTruthy()
     expect(screen.getByText(/\/ 60/)).toBeTruthy()
     expect(screen.getByText('$3.00')).toBeTruthy()
+  })
+
+  it('hands the saved review to onDone', async () => {
+    const review = {
+      id: 'r1',
+      walkthrough: { summary: 's', steps: [] }
+    } as unknown as SavedReview
+    vi.mocked(window.api.generate).mockResolvedValue(review)
+    const onDone = vi.fn()
+    show(onDone)
+    await waitFor(() => expect(onDone).toHaveBeenCalledWith(review))
   })
 })

@@ -85,12 +85,15 @@ describe('screens', () => {
   it('warns when over the limit and Generate still works', async () => {
     api.openTarget.mockResolvedValue(opened(2000, true))
     api.generate.mockResolvedValue({
-      summary: '',
-      steps: [{ id: 's1', title: 'First step', whyNext: '', explanation: '', segments: [] }],
-      target,
-      files: [],
-      changedLines: 2000,
-      sessionId: 'x'
+      id: 'r1',
+      walkthrough: {
+        summary: '',
+        steps: [{ id: 's1', title: 'First step', whyNext: '', explanation: '', segments: [] }],
+        target,
+        files: [],
+        changedLines: 2000,
+        sessionId: 'x'
+      }
     })
     const user = userEvent.setup()
     render(<App />)

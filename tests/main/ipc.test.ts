@@ -1,6 +1,8 @@
 import { describe, expect, it, vi } from 'vitest'
 import { createHandlers, type HandlerDeps } from '../../src/main/ipc'
 import { AgentRunError } from '../../src/main/agent/options'
+import type { ReviewStore } from '../../src/main/reviews/store'
+import { reviewKey, type SavedReview } from '../../src/shared/reviews'
 import type { ChangedFile, ReviewTarget, RunLogEntry, Settings } from '../../src/shared/types'
 import type { Step } from '../../src/shared/walkthrough'
 
@@ -24,6 +26,46 @@ const file = (over: Partial<ChangedFile>): ChangedFile => ({
 })
 
 const step: Step = { id: 's1', title: 'T', whyNext: '', explanation: 'E', segments: [] }
+
+/** In-memory ReviewStore; copies on the way in and out, like the disk store. */
+function memStore(initial: SavedReview[] = []): ReviewStore {
+  const data = new Map(initial.map((r) => [r.id, structuredClone(r)]))
+  return {
+    list: () => [...data.values()].map((r) => structuredClone(r)),
+    get: (id) => (data.has(id) ? structuredClone(data.get(id)!) : null),
+    findByKey: (key) => {
+      const r = [...data.values()].find((x) => x.key === key)
+      return r ? structuredClone(r) : null
+    },
+    save: vi.fn((r: SavedReview) => void data.set(r.id, structuredClone(r))),
+    remove: (id) => void data.delete(id)
+  }
+}
+
+const savedReview = (over: Partial<SavedReview> = {}, t: ReviewTarget = target): SavedReview => ({
+  id: 'old-id',
+  key: reviewKey(t),
+  walkthrough: {
+    summary: 'old summary',
+    steps: [step, { ...step, id: 's2' }],
+    target: { ...t, worktreePath: '/wt-old', headSha: 'oldhead' },
+    files: [],
+    changedLines: 5,
+    sessionId: 'old-sess'
+  },
+  state: {
+    index: 1,
+    seen: [0],
+    mode: 'plain',
+    messages: [{ id: 'm1', stepId: 's1', role: 'user', text: 'q' }]
+  },
+  createdAt: '2026-10-01T00:00:00.000Z',
+  generatedAt: '2026-10-01T00:00:00.000Z',
+  lastOpenedAt: '2026-10-02T00:00:00.000Z',
+  costUsd: 2,
+  update: { latestHeadSha: 'newer', newCommits: 1, checkedAt: '2026-10-02T00:00:00.000Z' },
+  ...over
+})
 
 function setup(
   over: Partial<HandlerDeps> = {},
@@ -75,6 +117,11 @@ function setup(
     readFileAt: vi.fn(async () => 'l1\nl2\nl3\n'),
     runGit: vi.fn(async () => 'DIFF'),
     worktreesDir: '/wts',
+    reviews: memStore(),
+    checkForUpdates: vi.fn(async () => null),
+    ensureWorktree: vi.fn(async () => '/wt'),
+    commitExists: vi.fn(async () => true),
+    newId: () => 'new-id',
     pickRepo: async () => null,
     send: vi.fn(),
     now: () => (t += 10),
@@ -126,7 +173,9 @@ describe('generate', () => {
     const { h, deps, log } = setup({}, files)
     await h.openTarget(local)
     const res = await h.generate(target)
-    expect(res).toMatchObject({ sessionId: 'sess1', changedLines: 10, summary: 's' })
+    expect(res).toMatchObject({
+      walkthrough: { sessionId: 'sess1', changedLines: 10, summary: 's' }
+    })
     expect(deps.runGit).toHaveBeenCalledWith('/wt', [
       'diff',
       '--no-ext-diff',
@@ -323,7 +372,7 @@ describe('generate with the real walkthrough pipeline', () => {
     })
     const res = await h.generate(target)
     expect(res).not.toHaveProperty('error')
-    const segs = (res as { steps: Step[] }).steps[0].segments
+    const segs = (res as SavedReview).walkthrough.steps[0].segments
     expect(segs).toContainEqual({ kind: 'context', path: 'lib/util.ts', startLine: 2, endLine: 4 })
     expect(readFileAt).toHaveBeenCalledWith('/wt', 'head', 'lib/util.ts')
   })
@@ -398,11 +447,226 @@ describe('getReviewUsage', () => {
     expect(u.tokens.output).toBe(57)
   })
 
-  it('starts over when a new walkthrough is generated', async () => {
-    const { h } = setup()
+  it('starts over when a different review is generated', async () => {
+    let n = 0
+    const { h } = setup({ newId: () => `id-${++n}` })
     await h.generate(target)
     await h.ask({ stepId: 's1', question: 'why?' })
-    await h.generate(target)
+    await h.generate({ ...target, headRef: 'feat/y', title: 'feat/y' })
     expect(await h.getReviewUsage()).toMatchObject({ runs: 1, costUsd: 0.5 })
   })
+
+  it("getReviewUsage counts only the open review's runs", async () => {
+    const { h, log } = setup()
+    log.push(
+      {
+        at: 'x',
+        kind: 'generate',
+        prTitle: 'other',
+        changedLines: 1,
+        durationMs: 1,
+        costUsd: 9,
+        turns: 1,
+        outcome: 'success',
+        reviewId: 'other-id'
+      },
+      {
+        at: 'x',
+        kind: 'chat',
+        prTitle: 'old',
+        changedLines: 1,
+        durationMs: 1,
+        costUsd: 4,
+        turns: 1,
+        outcome: 'success'
+      }
+    )
+    await h.generate(target)
+    await h.ask({ stepId: 's1', question: 'why?' })
+    const u = await h.getReviewUsage()
+    expect(u.runs).toBe(2)
+    expect(u.costUsd).toBeCloseTo(0.6)
+  })
+})
+
+describe('saved reviews', () => {
+  it('generate saves a new review with reviewId on its run-log entry and costUsd 0.5', async () => {
+    const { h, deps, log } = setup()
+    await h.openTarget(local)
+    const res = await h.generate(target)
+    const stored = deps.reviews.get('new-id')
+    expect(res).toEqual(stored)
+    expect(stored).toMatchObject({
+      id: 'new-id',
+      key: reviewKey(target),
+      costUsd: 0.5,
+      state: { index: 0, seen: [0], mode: 'diff', messages: [] },
+      walkthrough: { summary: 's', sessionId: 'sess1', target, changedLines: 10 }
+    })
+    expect(stored!.createdAt).toBe(stored!.generatedAt)
+    expect(stored!.lastOpenedAt).toBe(stored!.generatedAt)
+    expect(log[0].reviewId).toBe('new-id')
+  })
+
+  it('generate for the same key keeps id and createdAt, resets messages and index, keeps mode', async () => {
+    const reviews = memStore([savedReview()])
+    const { h } = setup({ reviews })
+    const res = (await h.generate(target)) as SavedReview
+    expect(res).toMatchObject({
+      id: 'old-id',
+      createdAt: '2026-10-01T00:00:00.000Z',
+      costUsd: 2.5,
+      state: { index: 0, seen: [0], mode: 'plain', messages: [] },
+      walkthrough: { summary: 's', sessionId: 'sess1', target }
+    })
+    expect(res.generatedAt).not.toBe('2026-10-01T00:00:00.000Z')
+    expect(res.lastOpenedAt).toBe(res.generatedAt)
+    expect(res).not.toHaveProperty('update')
+    expect(reviews.list()).toHaveLength(1)
+    expect(reviews.get('old-id')).toEqual(res)
+  })
+
+  it('failed generate leaves the saved review unchanged except costUsd', async () => {
+    const reviews = memStore([savedReview()])
+    const { h, log } = setup({
+      reviews,
+      generateWalkthrough: vi.fn(async () => {
+        throw new AgentRunError('max_budget', 'over', { usage: { costUsd: 0.75 } })
+      })
+    })
+    expect(await h.generate(target)).toHaveProperty('error')
+    expect(reviews.get('old-id')).toEqual(savedReview({ costUsd: 2.75 }))
+    expect(log[0].reviewId).toBe('old-id')
+  })
+
+  it('cancelled generate adds its cost to the saved review and changes nothing else', async () => {
+    const reviews = memStore([savedReview()])
+    const { h } = setup({
+      reviews,
+      generateWalkthrough: vi.fn(
+        (args) =>
+          new Promise((_resolve, reject) => {
+            args.abortController!.signal.addEventListener('abort', () =>
+              reject(new AgentRunError('cancelled', 'c', { usage: { costUsd: 0.25 } }))
+            )
+          })
+      )
+    })
+    const p = h.generate(target)
+    await new Promise((r) => setTimeout(r, 0))
+    await h.cancelGenerate()
+    await p
+    expect(reviews.get('old-id')).toEqual(savedReview({ costUsd: 2.25 }))
+  })
+
+  it('failed generate with no saved review saves nothing', async () => {
+    const reviews = memStore()
+    const { h } = setup({
+      reviews,
+      generateWalkthrough: vi.fn(async () => {
+        throw new AgentRunError('failed', 'x', { usage: { costUsd: 1 } })
+      })
+    })
+    await h.generate(target)
+    expect(reviews.list()).toEqual([])
+  })
+
+  it('regenerate removes the old worktree when no other review uses it', async () => {
+    const { h, deps } = setup({ reviews: memStore([savedReview()]) })
+    await h.generate(target)
+    expect(deps.runGit).toHaveBeenCalledWith('/repo', ['worktree', 'remove', '--force', '/wt-old'])
+  })
+
+  it('regenerate ignores a failure to remove the old worktree', async () => {
+    const { h } = setup({
+      reviews: memStore([savedReview()]),
+      runGit: vi.fn(async (_cwd: string, args: string[]) => {
+        if (args[0] === 'worktree') throw new Error('locked')
+        return 'DIFF'
+      })
+    })
+    expect(await h.generate(target)).not.toHaveProperty('error')
+  })
+
+  it('regenerate keeps the old worktree when another review shares it', async () => {
+    const pr: ReviewTarget = { ...target, kind: 'github', prNumber: 7, title: 'PR 7' }
+    const other = savedReview({ id: 'pr-id' }, pr)
+    const { h, deps } = setup({ reviews: memStore([savedReview(), other]) })
+    await h.generate(target)
+    expect(deps.runGit).not.toHaveBeenCalledWith('/repo', expect.arrayContaining(['worktree']))
+  })
+
+  it('regenerate keeps the worktree when the path is unchanged', async () => {
+    const r = savedReview()
+    r.walkthrough.target.worktreePath = '/wt'
+    const { h, deps } = setup({ reviews: memStore([r]) })
+    await h.generate(target)
+    expect(deps.runGit).not.toHaveBeenCalledWith('/repo', expect.arrayContaining(['worktree']))
+  })
+
+  it('openTarget reports nothing saved when there is no review for the key', async () => {
+    const res = await setup().h.openTarget(local)
+    expect(res).not.toHaveProperty('saved')
+  })
+
+  it('openTarget reports saved with newCommits 0 for the same head', async () => {
+    const r = savedReview()
+    r.walkthrough.target.headSha = 'head'
+    const { h, deps } = setup({ reviews: memStore([r]) })
+    expect(await h.openTarget(local)).toMatchObject({
+      saved: {
+        id: 'old-id',
+        progress: 'step 2 of 2',
+        lastOpenedAt: '2026-10-02T00:00:00.000Z',
+        newCommits: 0
+      }
+    })
+    expect(deps.runGit).not.toHaveBeenCalled()
+  })
+
+  it('openTarget reports saved newCommits from rev-list when the head moved', async () => {
+    const { h, deps } = setup({
+      reviews: memStore([savedReview()]),
+      runGit: vi.fn(async () => '3\n')
+    })
+    expect(await h.openTarget(local)).toMatchObject({ saved: { id: 'old-id', newCommits: 3 } })
+    expect(deps.runGit).toHaveBeenCalledWith('/repo', ['rev-list', '--count', 'oldhead..head'])
+  })
+
+  it('openTarget reports saved newCommits null when rev-list fails', async () => {
+    const { h } = setup({
+      reviews: memStore([savedReview()]),
+      runGit: vi.fn(async () => {
+        throw new Error('bad revision')
+      })
+    })
+    expect(await h.openTarget(local)).toMatchObject({ saved: { newCommits: null } })
+  })
+
+  it('ask persists the new sessionId and adds chat cost to the review', async () => {
+    const reviews = memStore()
+    const { h, log } = setup({ reviews })
+    await h.generate(target)
+    await h.ask({ stepId: 's1', question: 'why?' })
+    const r = reviews.get('new-id')!
+    expect(r.walkthrough.sessionId).toBe('sess2')
+    expect(r.costUsd).toBeCloseTo(0.6)
+    expect(r.state.messages).toEqual([])
+    expect(log[1].reviewId).toBe('new-id')
+  })
+
+  it('ask does not retry a failed resume once the session is known to work', async () => {
+    const { h, deps, log } = setup({
+      askAboutStep: vi.fn(async () => {
+        throw new AgentRunError('failed', 'no session')
+      })
+    })
+    await h.generate(target)
+    expect(await h.ask({ stepId: 's1', question: 'why?' })).toHaveProperty('error')
+    expect(deps.askAboutStep).toHaveBeenCalledTimes(1)
+    expect(log).toHaveLength(2)
+  })
+
+  // Unreachable until Task 7: a session is unverified only after a reopen, and generate verifies it.
+  it.todo('ask retries once in a fresh session when resume fails')
 })

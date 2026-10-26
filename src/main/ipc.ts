@@ -9,6 +9,7 @@ import {
   type PreloadApi
 } from '../shared/api'
 import type { ChangedFile, ChatMessage, ReviewTarget, RunLogEntry } from '../shared/types'
+import { progressLabel, reviewKey, type SavedReview } from '../shared/reviews'
 import { labelSteps } from '../shared/stepLabels'
 import { summarizeRuns } from '../shared/usage'
 import type { Walkthrough } from '../shared/walkthrough'
@@ -17,7 +18,9 @@ import { generateWalkthrough } from './agent/generate'
 import { AgentRunError } from './agent/options'
 import { countChangedLines, getChangedFiles, PLAIN_DIFF_FLAGS, readFileAt } from './git/diff'
 import { runGit } from './git/run'
-import { resolveGithubPr, resolveLocalBranch } from './git/target'
+import { commitExists, ensureWorktree, resolveGithubPr, resolveLocalBranch } from './git/target'
+import { checkForUpdates } from './git/updates'
+import type { ReviewStore } from './reviews/store'
 import type { SettingsStore } from './settings'
 import type { LineCounts } from './walkthrough/normalize'
 
@@ -32,6 +35,12 @@ export interface HandlerDeps {
   readFileAt: typeof readFileAt
   runGit: typeof runGit
   worktreesDir: string
+  reviews: ReviewStore
+  checkForUpdates: typeof checkForUpdates
+  /** ensureWorktree bound to worktreesDir. */
+  ensureWorktree: (repoPath: string, headSha: string) => Promise<string>
+  commitExists: typeof commitExists
+  newId: () => string
   pickRepo: () => Promise<string | null>
   /** Pushes an event to the renderer (progress, chat text). */
   send: (channel: string, payload: unknown) => void
@@ -80,6 +89,10 @@ export function createHandlers(deps: HandlerDeps): Handlers {
     ? { target: fixture.target, files: fixture.files, changedLines: fixture.changedLines }
     : null
   let walkthrough: Walkthrough | null = null
+  /** The saved review that is open, or null (none yet, or the fixture). */
+  let reviewId: string | null = null
+  /** Whether the open walkthrough's agent session is known to resume. */
+  let sessionVerified = false
 
   async function computeLineCounts(
     target: ReviewTarget,
@@ -114,11 +127,44 @@ export function createHandlers(deps: HandlerDeps): Handlers {
   }
 
   let generation: AbortController | null = null
-  /** Cost of the review in progress: its generation plus every chat question since. */
-  let reviewRuns: RunLogEntry[] = []
-  const logRun = (e: RunLogEntry): void => {
-    deps.settings.appendRunLog(e)
-    reviewRuns.push(e)
+  const logRun = (e: RunLogEntry): void => deps.settings.appendRunLog(e)
+
+  /** Adds a run's cost to a saved review, if it still exists. */
+  const addCost = (id: string, costUsd: number | null | undefined): void => {
+    const review = deps.reviews.get(id)
+    if (!review || !costUsd) return
+    deps.reviews.save({ ...review, costUsd: review.costUsd + costUsd })
+  }
+
+  async function countNewCommits(
+    repoPath: string,
+    savedHead: string,
+    head: string
+  ): Promise<number | null> {
+    if (savedHead === head) return 0
+    try {
+      const n = Number(
+        (await deps.runGit(repoPath, ['rev-list', '--count', `${savedHead}..${head}`])).trim()
+      )
+      return Number.isNaN(n) ? null : n
+    } catch {
+      return null
+    }
+  }
+
+  /** Removes a replaced review's worktree unless the new walkthrough or another review uses it. */
+  async function removeOldWorktree(old: SavedReview, newPath: string): Promise<void> {
+    const { repoPath, worktreePath } = old.walkthrough.target
+    if (worktreePath === newPath) return
+    const shared = deps.reviews
+      .list()
+      .some((r) => r.id !== old.id && r.walkthrough.target.worktreePath === worktreePath)
+    if (shared) return
+    try {
+      await deps.runGit(repoPath, ['worktree', 'remove', '--force', worktreePath])
+    } catch {
+      // best effort
+    }
   }
 
   return {
@@ -156,24 +202,46 @@ export function createHandlers(deps: HandlerDeps): Handlers {
         const changedLines = deps.countChangedLines(files)
         current = { target, files, changedLines }
         walkthrough = null
+        reviewId = null
         deps.settings.save({ lastRepoPath: req.repoPath })
-        return { target, files, changedLines, overLimit: changedLines > CHANGED_LINES_LIMIT }
+        const result: OpenResult = {
+          target,
+          files,
+          changedLines,
+          overLimit: changedLines > CHANGED_LINES_LIMIT
+        }
+        const existing = deps.reviews.findByKey(reviewKey(target))
+        if (existing) {
+          result.saved = {
+            id: existing.id,
+            progress: progressLabel(existing),
+            lastOpenedAt: existing.lastOpenedAt,
+            newCommits: await countNewCommits(
+              target.repoPath,
+              existing.walkthrough.target.headSha,
+              target.headSha
+            )
+          }
+        }
+        return result
       } catch (err) {
         return toApiError(err)
       }
     },
 
-    async generate(target): Promise<Walkthrough | ApiError> {
+    async generate(target): Promise<SavedReview | ApiError> {
       const started = deps.now()
+      const existing = deps.reviews.findByKey(reviewKey(target))
+      const id = existing?.id ?? deps.newId()
       const entry = (partial: RunOutcome): void =>
         logRun({
           at: new Date(started).toISOString(),
           kind: 'generate',
           prTitle: target.title,
           changedLines: current?.changedLines ?? 0,
+          reviewId: id,
           ...partial
         })
-      reviewRuns = []
       const abortController = new AbortController()
       generation?.abort()
       generation = abortController
@@ -213,13 +281,29 @@ export function createHandlers(deps: HandlerDeps): Handlers {
           onProgress: (p) =>
             deps.send(IPC.generateProgress, { ...p, elapsedMs: deps.now() - started })
         })
-        walkthrough = {
+        const generated: Walkthrough = {
           ...result.walkthrough,
           target,
           files,
           changedLines,
           sessionId: result.sessionId
         }
+        const at = new Date(deps.now()).toISOString()
+        const previous = existing ? (deps.reviews.get(existing.id) ?? existing) : null
+        const review: SavedReview = {
+          id,
+          key: reviewKey(target),
+          walkthrough: generated,
+          state: { index: 0, seen: [0], mode: previous?.state.mode ?? 'diff', messages: [] },
+          createdAt: previous?.createdAt ?? at,
+          generatedAt: at,
+          lastOpenedAt: at,
+          costUsd: (previous?.costUsd ?? 0) + (result.costUsd ?? 0)
+        }
+        deps.reviews.save(review)
+        walkthrough = generated
+        reviewId = id
+        sessionVerified = true
         entry({
           outcome: 'success',
           costUsd: result.costUsd,
@@ -228,9 +312,11 @@ export function createHandlers(deps: HandlerDeps): Handlers {
           tokens: result.tokens,
           tokensByModel: result.tokensByModel
         })
-        return walkthrough
+        if (previous) await removeOldWorktree(previous, target.worktreePath)
+        return review
       } catch (err) {
         const agentErr = err instanceof AgentRunError ? err : null
+        if (existing) addCost(existing.id, agentErr?.costUsd)
         entry({
           outcome: abortController.signal.aborted ? 'cancelled' : (agentErr?.reason ?? 'failed'),
           costUsd: agentErr?.costUsd ?? null,
@@ -253,8 +339,9 @@ export function createHandlers(deps: HandlerDeps): Handlers {
     },
 
     async ask({ stepId, question }): Promise<ChatMessage | ApiError> {
-      const started = deps.now()
+      let started = deps.now()
       const asked = walkthrough
+      const askedReviewId = reviewId
       const entry = (partial: RunOutcome): void => {
         if (!asked) return
         logRun({
@@ -262,22 +349,48 @@ export function createHandlers(deps: HandlerDeps): Handlers {
           kind: 'chat',
           prTitle: asked.target.title,
           changedLines: asked.changedLines,
+          ...(askedReviewId ? { reviewId: askedReviewId } : {}),
           ...partial
         })
       }
-      try {
-        if (!walkthrough) throw new Error('No walkthrough is open.')
-        const stepIndex = walkthrough.steps.findIndex((s) => s.id === stepId)
-        if (stepIndex < 0) throw new Error(`Unknown step: ${stepId}`)
-        const result = await deps.askAboutStep({
-          sessionId: walkthrough.sessionId,
-          worktreePath: walkthrough.target.worktreePath,
-          step: walkthrough.steps[stepIndex],
-          stepLabel: labelSteps(walkthrough.steps).labels[stepIndex],
-          question,
-          settings: deps.settings.get(),
-          onText: (chunk) => deps.send(IPC.chatText, chunk)
+      const logFailure = (err: unknown): void => {
+        if (!(err instanceof AgentRunError)) return
+        entry({
+          outcome: err.reason,
+          costUsd: err.costUsd ?? null,
+          turns: err.turns ?? null,
+          durationMs: err.durationMs ?? deps.now() - started,
+          tokens: err.tokens ?? null,
+          tokensByModel: err.tokensByModel ?? null
         })
+        if (askedReviewId) addCost(askedReviewId, err.costUsd)
+      }
+      try {
+        if (!asked) throw new Error('No walkthrough is open.')
+        const stepIndex = asked.steps.findIndex((s) => s.id === stepId)
+        if (stepIndex < 0) throw new Error(`Unknown step: ${stepId}`)
+        const ask = (fresh: boolean): ReturnType<typeof deps.askAboutStep> =>
+          deps.askAboutStep({
+            sessionId: fresh ? null : asked.sessionId,
+            ...(fresh ? { walkthrough: { summary: asked.summary, steps: asked.steps } } : {}),
+            worktreePath: asked.target.worktreePath,
+            step: asked.steps[stepIndex],
+            stepLabel: labelSteps(asked.steps).labels[stepIndex],
+            question,
+            settings: deps.settings.get(),
+            onText: (chunk) => deps.send(IPC.chatText, chunk)
+          })
+        let result: Awaited<ReturnType<typeof deps.askAboutStep>>
+        try {
+          result = await ask(false)
+        } catch (err) {
+          // A stored session may not resume (e.g. after a restart): retry once in a fresh one.
+          if (!(err instanceof AgentRunError && err.reason === 'failed') || sessionVerified)
+            throw err
+          logFailure(err)
+          started = deps.now()
+          result = await ask(true)
+        }
         entry({
           outcome: 'success',
           costUsd: result.costUsd,
@@ -286,19 +399,27 @@ export function createHandlers(deps: HandlerDeps): Handlers {
           tokens: result.tokens,
           tokensByModel: result.tokensByModel
         })
-        walkthrough = { ...walkthrough, sessionId: result.sessionId }
+        if (walkthrough === asked) {
+          walkthrough = { ...asked, sessionId: result.sessionId }
+          sessionVerified = true
+        }
+        if (askedReviewId) {
+          const review = deps.reviews.get(askedReviewId)
+          if (review) {
+            // A regenerate since the question was asked owns the session now; keep its id.
+            const stillAsked = review.walkthrough.sessionId === asked.sessionId
+            deps.reviews.save({
+              ...review,
+              walkthrough: stillAsked
+                ? { ...review.walkthrough, sessionId: result.sessionId }
+                : review.walkthrough,
+              costUsd: review.costUsd + (result.costUsd ?? 0)
+            })
+          }
+        }
         return { id: randomUUID(), stepId, role: 'assistant', text: result.answer }
       } catch (err) {
-        if (err instanceof AgentRunError) {
-          entry({
-            outcome: err.reason,
-            costUsd: err.costUsd ?? null,
-            turns: err.turns ?? null,
-            durationMs: err.durationMs ?? deps.now() - started,
-            tokens: err.tokens ?? null,
-            tokensByModel: err.tokensByModel ?? null
-          })
-        }
+        logFailure(err)
         return toApiError(err)
       }
     },
@@ -308,7 +429,9 @@ export function createHandlers(deps: HandlerDeps): Handlers {
     },
 
     async getReviewUsage() {
-      return summarizeRuns(reviewRuns).allTime
+      const id = reviewId
+      return summarizeRuns(id ? deps.settings.readRunLog().filter((e) => e.reviewId === id) : [])
+        .allTime
     },
 
     async getFixture() {
@@ -326,6 +449,7 @@ export function createHandlers(deps: HandlerDeps): Handlers {
 export function registerIpc(opts: {
   settings: SettingsStore
   worktreesDir: string
+  reviews: ReviewStore
   getWindow: () => BrowserWindow | null
   fixture?: Walkthrough | null
 }): void {
@@ -341,6 +465,11 @@ export function registerIpc(opts: {
     readFileAt,
     runGit,
     worktreesDir: opts.worktreesDir,
+    reviews: opts.reviews,
+    checkForUpdates,
+    ensureWorktree: (r, s) => ensureWorktree(runGit, r, opts.worktreesDir, s),
+    commitExists,
+    newId: randomUUID,
     pickRepo: async () => {
       const win = getWindow()
       const options = { properties: ['openDirectory' as const] }

@@ -5,6 +5,7 @@ import { join } from 'path'
 import { electronApp, optimizer, is } from '@electron-toolkit/utils'
 import icon from '../../resources/icon.png?asset'
 import { registerIpc } from './ipc'
+import { createReviewStore } from './reviews/store'
 import { createSettingsStore } from './settings'
 import { setClaudeExecutablePath, toUnpackedPath } from './agent/options'
 import { withHomebrewPath } from './git/run'
@@ -96,6 +97,7 @@ app.whenReady().then(() => {
   registerIpc({
     settings,
     worktreesDir: join(userData, 'worktrees'),
+    reviews: createReviewStore(join(userData, 'reviews')),
     getWindow: () => mainWindow,
     fixture: loadFixture()
   })
