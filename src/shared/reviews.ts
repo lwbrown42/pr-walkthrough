@@ -152,3 +152,6 @@ export function openRequestFor(target: ReviewTarget): OpenRequest {
   if (target.baseRef !== undefined) req.baseRef = target.baseRef
   return req
 }
+
+/** How many update checks the reviews list runs at once. */
+export const LIST_CHECK_CONCURRENCY = 2

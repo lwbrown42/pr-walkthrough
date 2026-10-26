@@ -1,6 +1,8 @@
 import { useEffect, useState } from 'react'
 import type { OpenResult, PublicSettings } from '../../shared/api'
-import type { SavedReview } from '../../shared/reviews'
+import { openRequestFor, type ReviewSummary, type SavedReview } from '../../shared/reviews'
+import type { RowError } from './components/ReviewsList'
+import { friendlyError } from './errors'
 import type { Walkthrough as WalkthroughData } from '../../shared/walkthrough'
 import Generating from './screens/Generating'
 import Open from './screens/Open'
@@ -10,7 +12,7 @@ import WalkthroughScreen from './screens/Walkthrough'
 
 type State =
   | { screen: 'setup' }
-  | { screen: 'open'; opened?: OpenResult; error?: string }
+  | { screen: 'open'; opened?: OpenResult; error?: string; rowError?: RowError }
   | { screen: 'generating'; opened: OpenResult }
   | { screen: 'walkthrough'; walkthrough: WalkthroughData; review?: SavedReview }
   | { screen: 'usage' }
@@ -38,6 +40,32 @@ function App(): React.JSX.Element | null {
   }
 
   useEffect(init, [])
+
+  const rowFail = (id: string, e: { message: string; reason?: string }): void =>
+    setState({
+      screen: 'open',
+      rowError: { id, message: e.message, regenerate: e.reason === 'missing_commit' }
+    })
+
+  const reopen = async (id: string): Promise<void> => {
+    try {
+      const r = await window.api.reopenReview(id)
+      if ('error' in r) rowFail(id, r.error)
+      else setState({ screen: 'walkthrough', walkthrough: r.walkthrough, review: r })
+    } catch (e) {
+      rowFail(id, { message: e instanceof Error ? e.message : String(e) })
+    }
+  }
+
+  const regenerateFromRow = async (summary: ReviewSummary): Promise<void> => {
+    try {
+      const opened = await window.api.openTarget(openRequestFor(summary.target))
+      if ('error' in opened) rowFail(summary.id, { message: friendlyError(opened.error) })
+      else setState({ screen: 'generating', opened })
+    } catch (e) {
+      rowFail(summary.id, { message: e instanceof Error ? e.message : String(e) })
+    }
+  }
 
   if (loadError)
     return (
@@ -71,6 +99,9 @@ function App(): React.JSX.Element | null {
           lastRepoPath={settings.lastRepoPath}
           opened={state.opened}
           error={state.error}
+          rowError={state.rowError}
+          onReopen={(id) => void reopen(id)}
+          onRegenerateReview={(r) => void regenerateFromRow(r)}
           onOpened={(opened) => setState({ screen: 'open', opened })}
           onInputsChanged={() =>
             setState((s) => (s.screen === 'open' && (s.opened || s.error) ? { screen: 'open' } : s))

@@ -43,6 +43,11 @@ beforeEach(() => {
     ask: vi.fn(),
     onChatText: vi.fn().mockReturnValue(() => {}),
     readFile: vi.fn(),
+    listReviews: vi.fn().mockResolvedValue([]),
+    checkReviewUpdates: vi.fn().mockResolvedValue(null),
+    reopenReview: vi.fn(),
+    deleteReview: vi.fn(),
+    restoreReview: vi.fn().mockResolvedValue(undefined),
     getFixture: vi.fn().mockResolvedValue(null),
     getRunLog: vi.fn().mockResolvedValue([]),
     getReviewUsage: vi.fn().mockResolvedValue({
@@ -60,6 +65,28 @@ async function openLocal(user: ReturnType<typeof userEvent.setup>): Promise<void
 }
 
 describe('screens', () => {
+  it('Open shows "Start a new review" when reviews exist', async () => {
+    api.listReviews.mockResolvedValue([
+      {
+        id: 'r1',
+        title: 'Saved one',
+        repoName: 'repo',
+        repoPath: '/repo',
+        progress: 'finished',
+        questions: 0,
+        costUsd: 0.5,
+        lastOpenedAt: new Date().toISOString(),
+        newCommits: undefined,
+        repoFound: true,
+        target
+      }
+    ])
+    render(<App />)
+    expect(await screen.findByText('Start a new review')).toBeTruthy()
+    expect(screen.getByRole('heading', { name: 'Reviews' })).toBeTruthy()
+    expect(screen.queryByText('Open a change')).toBeNull()
+  })
+
   it('shows Setup without an API key and saves it', async () => {
     api.getSettings.mockResolvedValue({ ...settings, hasApiKey: false })
     const user = userEvent.setup()

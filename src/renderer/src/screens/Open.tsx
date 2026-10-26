@@ -1,6 +1,8 @@
 import { useEffect, useState } from 'react'
 import type { OpenRequest, OpenResult } from '../../../shared/api'
 import { CHANGED_LINES_LIMIT } from '../../../shared/api'
+import type { ReviewSummary } from '../../../shared/reviews'
+import ReviewsList, { type RowError } from '../components/ReviewsList'
 import { friendlyError } from '../errors'
 
 interface Props {
@@ -14,6 +16,9 @@ interface Props {
   onGenerate: () => void
   onSettings: () => void
   onUsage: () => void
+  onReopen: (id: string) => void
+  onRegenerateReview: (summary: ReviewSummary) => void
+  rowError?: RowError
 }
 
 type Tab = 'local' | 'github'
@@ -27,6 +32,7 @@ export default function Open(props: Props): React.JSX.Element {
   const [pr, setPr] = useState('')
   const [busy, setBusy] = useState(false)
   const [openError, setOpenError] = useState<string>()
+  const [reviewCount, setReviewCount] = useState(0)
 
   useEffect(() => {
     if (props.lastRepoPath) setRepoPath((cur) => cur || props.lastRepoPath!)
@@ -83,7 +89,7 @@ export default function Open(props: Props): React.JSX.Element {
   return (
     <div className="screen">
       <div className="row between">
-        <h1>Open a change</h1>
+        <h1>{reviewCount > 0 ? 'Reviews' : 'Open a change'}</h1>
         <div className="row">
           <button type="button" className="link" onClick={props.onUsage}>
             Usage
@@ -93,6 +99,14 @@ export default function Open(props: Props): React.JSX.Element {
           </button>
         </div>
       </div>
+
+      <ReviewsList
+        onReopen={props.onReopen}
+        onRegenerate={props.onRegenerateReview}
+        onLoaded={setReviewCount}
+        rowError={props.rowError}
+      />
+      {reviewCount > 0 && <h2>Start a new review</h2>}
 
       <label>
         Repository folder
