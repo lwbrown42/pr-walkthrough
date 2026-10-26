@@ -60,6 +60,8 @@ export interface RunLogEntry {
   tokens?: TokenUsage | null
   /** Per-model breakdown, keyed by the SDK's model id. */
   tokensByModel?: Record<string, TokenUsage> | null
+  /** The saved review this run belongs to, when it came from one. */
+  reviewId?: string
 }
 
 export interface ChatMessage {
