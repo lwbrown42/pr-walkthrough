@@ -1,6 +1,6 @@
 import type { ChangedFile, ChatMessage, ReviewTarget, RunLogEntry, Settings } from './types'
 import type { GenerateProgress } from './progress'
-import type { SavedReview } from './reviews'
+import type { ReviewState, ReviewSummary, ReviewUpdate, SavedReview } from './reviews'
 import type { UsageTotals } from './usage'
 import type { Walkthrough } from './walkthrough'
 
@@ -44,6 +44,18 @@ export interface PreloadApi {
   getRunLog(): Promise<RunLogEntry[]>
   /** Totals for the open saved review: every generation and chat question logged under its id. */
   getReviewUsage(): Promise<UsageTotals>
+  /** Saved reviews, newest lastOpenedAt first. Removes expired reviews first. */
+  listReviews(): Promise<ReviewSummary[]>
+  /** Opens a saved review: recreates its worktree if needed and updates lastOpenedAt. */
+  reopenReview(id: string): Promise<SavedReview | ApiError>
+  /** Replaces a saved review's reading state; nothing else changes. */
+  saveReviewState(req: { id: string; state: ReviewState }): Promise<void>
+  /** Deletes a saved review and returns it (for Undo), or null if there was none. */
+  deleteReview(id: string): Promise<SavedReview | null>
+  /** Saves a review back after deleteReview (Undo). Invalid input is ignored. */
+  restoreReview(review: SavedReview): Promise<void>
+  /** Checks a saved review's branch for new commits and stores the result. */
+  checkReviewUpdates(id: string): Promise<ReviewUpdate | null>
 }
 
 export const CHANGED_LINES_LIMIT = 1300
@@ -60,6 +72,12 @@ export const IPC = {
   getFixture: 'api:getFixture',
   getRunLog: 'api:getRunLog',
   getReviewUsage: 'api:getReviewUsage',
+  listReviews: 'api:listReviews',
+  reopenReview: 'api:reopenReview',
+  saveReviewState: 'api:saveReviewState',
+  deleteReview: 'api:deleteReview',
+  restoreReview: 'api:restoreReview',
+  checkReviewUpdates: 'api:checkReviewUpdates',
   generateProgress: 'api:generateProgress',
   chatText: 'api:chatText'
 } as const

@@ -18,7 +18,8 @@ export interface ReviewStore {
   remove(id: string): void
 }
 
-const isPlainId = (id: string): boolean =>
+/** A review id that is safe to use as a file name in the reviews directory. */
+export const isPlainId = (id: string): boolean =>
   id !== '' && !id.includes('/') && !id.includes('\\') && !id.includes('..')
 
 export function createReviewStore(dir: string): ReviewStore {
@@ -49,6 +50,7 @@ export function createReviewStore(dir: string): ReviewStore {
   const findByKey = (key: string): SavedReview | null => list().find((r) => r.key === key) ?? null
 
   const save = (review: SavedReview): void => {
+    if (!isPlainId(review.id)) throw new Error(`Invalid review id: ${review.id}`)
     mkdirSync(dir, { recursive: true })
     const path = fileFor(review.id)
     const tmp = `${path}.tmp`

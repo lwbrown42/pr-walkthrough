@@ -84,6 +84,14 @@ describe('createReviewStore', () => {
     expect(readdirSync(dir)).toEqual(['r1.json'])
   })
 
+  it('save refuses a non-plain id', () => {
+    const store = createReviewStore(dir)
+    expect(() => store.save(review({ id: '../settings' }))).toThrow()
+    expect(() => store.save(review({ id: '' }))).toThrow()
+    expect(() => store.save(review({ id: 'a\\b' }))).toThrow()
+    expect(existsSync(join(dir, '..', 'settings.json'))).toBe(false)
+  })
+
   it("get('../settings') returns null", () => {
     const store = createReviewStore(dir)
     writeFileSync(join(dir, '..', 'settings.json'), JSON.stringify(review()))

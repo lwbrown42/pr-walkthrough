@@ -9,7 +9,14 @@ import {
   type PreloadApi
 } from '../shared/api'
 import type { ChangedFile, ChatMessage, ReviewTarget, RunLogEntry } from '../shared/types'
-import { progressLabel, reviewKey, type SavedReview } from '../shared/reviews'
+import {
+  isExpired,
+  progressLabel,
+  reviewKey,
+  SavedReviewSchema,
+  summarizeReview,
+  type SavedReview
+} from '../shared/reviews'
 import { labelSteps } from '../shared/stepLabels'
 import { summarizeRuns } from '../shared/usage'
 import type { Walkthrough } from '../shared/walkthrough'
@@ -20,7 +27,7 @@ import { countChangedLines, getChangedFiles, PLAIN_DIFF_FLAGS, readFileAt } from
 import { runGit } from './git/run'
 import { commitExists, ensureWorktree, resolveGithubPr, resolveLocalBranch } from './git/target'
 import { checkForUpdates } from './git/updates'
-import type { ReviewStore } from './reviews/store'
+import { isPlainId, type ReviewStore } from './reviews/store'
 import type { SettingsStore } from './settings'
 import type { LineCounts } from './walkthrough/normalize'
 
@@ -152,10 +159,13 @@ export function createHandlers(deps: HandlerDeps): Handlers {
     }
   }
 
-  /** Removes a replaced review's worktree unless the new walkthrough or another review uses it. */
-  async function removeOldWorktree(old: SavedReview, newPath: string): Promise<void> {
+  /**
+   * Removes a replaced or deleted review's worktree unless the new walkthrough (keepPath) or
+   * another review uses it. A missing repo makes the removal fail, which is ignored.
+   */
+  async function removeOldWorktree(old: SavedReview, keepPath?: string): Promise<void> {
     const { repoPath, worktreePath } = old.walkthrough.target
-    if (worktreePath === newPath) return
+    if (worktreePath === keepPath) return
     const shared = deps.reviews
       .list()
       .some((r) => r.id !== old.id && r.walkthrough.target.worktreePath === worktreePath)
@@ -164,6 +174,21 @@ export function createHandlers(deps: HandlerDeps): Handlers {
       await deps.runGit(repoPath, ['worktree', 'remove', '--force', worktreePath])
     } catch {
       // best effort
+    }
+  }
+
+  /** Deletes a saved review's file, then its worktree under the shared-worktree rule. */
+  async function removeReview(review: SavedReview): Promise<void> {
+    deps.reviews.remove(review.id)
+    await removeOldWorktree(review)
+  }
+
+  async function repoExists(repoPath: string): Promise<boolean> {
+    try {
+      await deps.runGit(repoPath, ['rev-parse', '--git-dir'])
+      return true
+    } catch {
+      return false
     }
   }
 
@@ -434,6 +459,92 @@ export function createHandlers(deps: HandlerDeps): Handlers {
         .allTime
     },
 
+    async listReviews() {
+      const now = deps.now()
+      const kept: SavedReview[] = []
+      for (const review of deps.reviews.list()) {
+        if (isExpired(review, now)) await removeReview(review)
+        else kept.push(review)
+      }
+      kept.sort((a, b) => Date.parse(b.lastOpenedAt) - Date.parse(a.lastOpenedAt))
+      return Promise.all(
+        kept.map(async (r) => summarizeReview(r, await repoExists(r.walkthrough.target.repoPath)))
+      )
+    },
+
+    async reopenReview(id): Promise<SavedReview | ApiError> {
+      try {
+        const review = deps.reviews.get(id)
+        if (!review) throw new Error('This review no longer exists.')
+        const saved = review.walkthrough.target
+        if (!(await repoExists(saved.repoPath))) {
+          return {
+            error: { message: `Repository not found at ${saved.repoPath}`, reason: 'missing_repo' }
+          }
+        }
+        if (!(await deps.commitExists(saved.repoPath, saved.headSha))) {
+          return {
+            error: {
+              message: 'This review’s commit is no longer in the repository.',
+              reason: 'missing_commit'
+            }
+          }
+        }
+        const worktreePath = await deps.ensureWorktree(saved.repoPath, saved.headSha)
+        const target = worktreePath === saved.worktreePath ? saved : { ...saved, worktreePath }
+        const reopened: SavedReview = {
+          ...review,
+          walkthrough: { ...review.walkthrough, target },
+          lastOpenedAt: new Date(deps.now()).toISOString()
+        }
+        deps.reviews.save(reopened)
+        walkthrough = reopened.walkthrough
+        current = { target, files: walkthrough.files, changedLines: walkthrough.changedLines }
+        reviewId = id
+        sessionVerified = false
+        return reopened
+      } catch (err) {
+        return toApiError(err)
+      }
+    },
+
+    async saveReviewState({ id, state }) {
+      // Re-read so costUsd and sessionId written here since the renderer loaded it survive.
+      const review = deps.reviews.get(id)
+      if (review) deps.reviews.save({ ...review, state })
+    },
+
+    async deleteReview(id) {
+      const review = deps.reviews.get(id)
+      if (!review) return null
+      await removeReview(review)
+      if (reviewId === id) {
+        reviewId = null
+        walkthrough = null
+        current = null
+      }
+      return review
+    },
+
+    async restoreReview(review) {
+      // Comes from the renderer: save only a well-formed review with a plain file-name id.
+      const parsed = SavedReviewSchema.safeParse(review)
+      if (!parsed.success || !isPlainId(parsed.data.id)) return
+      deps.reviews.save(parsed.data)
+    },
+
+    async checkReviewUpdates(id) {
+      const review = deps.reviews.get(id)
+      if (!review) return null
+      const result = await deps.checkForUpdates(review.walkthrough.target)
+      if (!result) return null
+      const update = { ...result, checkedAt: new Date(deps.now()).toISOString() }
+      // Re-read: the review may have changed or been deleted during the check.
+      const latest = deps.reviews.get(id)
+      if (latest) deps.reviews.save({ ...latest, update })
+      return update
+    },
+
     async getFixture() {
       return fixture
     },
@@ -494,4 +605,10 @@ export function registerIpc(opts: {
   ipcMain.handle(IPC.readFile, (_e, req) => handlers.readFile(req))
   ipcMain.handle(IPC.getRunLog, () => handlers.getRunLog())
   ipcMain.handle(IPC.getReviewUsage, () => handlers.getReviewUsage())
+  ipcMain.handle(IPC.listReviews, () => handlers.listReviews())
+  ipcMain.handle(IPC.reopenReview, (_e, id) => handlers.reopenReview(id))
+  ipcMain.handle(IPC.saveReviewState, (_e, req) => handlers.saveReviewState(req))
+  ipcMain.handle(IPC.deleteReview, (_e, id) => handlers.deleteReview(id))
+  ipcMain.handle(IPC.restoreReview, (_e, review) => handlers.restoreReview(review))
+  ipcMain.handle(IPC.checkReviewUpdates, (_e, id) => handlers.checkReviewUpdates(id))
 }

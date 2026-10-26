@@ -667,6 +667,209 @@ describe('saved reviews', () => {
     expect(log).toHaveLength(2)
   })
 
-  // Unreachable until Task 7: a session is unverified only after a reopen, and generate verifies it.
-  it.todo('ask retries once in a fresh session when resume fails')
+  it('ask retries once in a fresh session when resume fails', async () => {
+    const reviews = memStore([savedReview()])
+    const askAboutStep = vi
+      .fn<HandlerDeps['askAboutStep']>()
+      .mockRejectedValueOnce(new AgentRunError('failed', 'no session'))
+      .mockResolvedValueOnce({
+        answer: 'yes',
+        sessionId: 'fresh-sess',
+        costUsd: 0.1,
+        turns: 2,
+        durationMs: 700,
+        tokens: null,
+        tokensByModel: null
+      })
+    const { h, log } = setup({ reviews, askAboutStep })
+    await h.reopenReview('old-id')
+    expect(await h.ask({ stepId: 's1', question: 'why?' })).toMatchObject({ text: 'yes' })
+    expect(askAboutStep).toHaveBeenCalledTimes(2)
+    expect(askAboutStep.mock.calls[0][0]).toMatchObject({ sessionId: 'old-sess' })
+    expect(askAboutStep.mock.calls[0][0]).not.toHaveProperty('walkthrough')
+    expect(askAboutStep.mock.calls[1][0]).toMatchObject({
+      sessionId: null,
+      walkthrough: { summary: 'old summary', steps: [step, { ...step, id: 's2' }] }
+    })
+    expect(log.map((e) => [e.kind, e.outcome, e.reviewId])).toEqual([
+      ['chat', 'failed', 'old-id'],
+      ['chat', 'success', 'old-id']
+    ])
+    expect(reviews.get('old-id')!.walkthrough.sessionId).toBe('fresh-sess')
+  })
+})
+
+const DAY = 24 * 60 * 60 * 1000
+const NOW = Date.parse('2026-10-26T00:00:00.000Z')
+const daysAgo = (n: number): string => new Date(NOW - n * DAY).toISOString()
+
+describe('review handlers', () => {
+  it('listReviews orders by lastOpenedAt and drops reviews unopened for over 7 days', async () => {
+    const reviews = memStore([
+      savedReview({ id: 'a', key: 'ka', lastOpenedAt: daysAgo(3) }),
+      savedReview({ id: 'b', key: 'kb', lastOpenedAt: daysAgo(1) })
+    ])
+    const old = savedReview({ id: 'old', key: 'ko', lastOpenedAt: daysAgo(8) })
+    old.walkthrough.target.worktreePath = '/wt-expired'
+    reviews.save(old)
+    const { h, deps } = setup({ reviews, now: () => NOW })
+    const list = await h.listReviews()
+    expect(list.map((r) => r.id)).toEqual(['b', 'a'])
+    expect(list[0]).toMatchObject({ repoFound: true, progress: 'step 2 of 2', questions: 1 })
+    expect(reviews.get('old')).toBeNull()
+    expect(deps.runGit).toHaveBeenCalledWith('/repo', [
+      'worktree',
+      'remove',
+      '--force',
+      '/wt-expired'
+    ])
+    expect(deps.runGit).not.toHaveBeenCalledWith('/repo', expect.arrayContaining(['/wt-old']))
+  })
+
+  it('listReviews marks repoFound false when rev-parse fails', async () => {
+    const { h, deps } = setup({
+      reviews: memStore([savedReview({ lastOpenedAt: daysAgo(1) })]),
+      now: () => NOW,
+      runGit: vi.fn(async () => {
+        throw new Error('not a git repository')
+      })
+    })
+    expect(await h.listReviews()).toMatchObject([{ id: 'old-id', repoFound: false }])
+    expect(deps.runGit).toHaveBeenCalledWith('/repo', ['rev-parse', '--git-dir'])
+  })
+
+  it("reopenReview updates lastOpenedAt and makes ask use the review's session", async () => {
+    const reviews = memStore([savedReview()])
+    const { h, deps } = setup({ reviews, ensureWorktree: vi.fn(async () => '/wt-old') })
+    const res = (await h.reopenReview('old-id')) as SavedReview
+    expect(res.lastOpenedAt).not.toBe('2026-10-02T00:00:00.000Z')
+    expect(reviews.get('old-id')).toEqual(res)
+    expect(res.walkthrough.target.worktreePath).toBe('/wt-old')
+    expect(deps.commitExists).toHaveBeenCalledWith('/repo', 'oldhead')
+    await h.ask({ stepId: 's2', question: 'why?' })
+    expect(vi.mocked(deps.askAboutStep).mock.calls[0][0]).toMatchObject({
+      sessionId: 'old-sess',
+      worktreePath: '/wt-old'
+    })
+    expect(await h.readFile({ sha: 'oldhead', path: 'a.ts' })).toBe('l1\nl2\nl3\n')
+    expect(deps.readFileAt).toHaveBeenCalledWith('/wt-old', 'oldhead', 'a.ts')
+    expect((await h.getReviewUsage()).runs).toBe(1)
+  })
+
+  it('reopenReview recreates a missing worktree via ensureWorktree', async () => {
+    const reviews = memStore([savedReview()])
+    const { h, deps } = setup({ reviews, ensureWorktree: vi.fn(async () => '/wt-new') })
+    const res = (await h.reopenReview('old-id')) as SavedReview
+    expect(deps.ensureWorktree).toHaveBeenCalledWith('/repo', 'oldhead')
+    expect(res.walkthrough.target.worktreePath).toBe('/wt-new')
+    expect(reviews.get('old-id')!.walkthrough.target.worktreePath).toBe('/wt-new')
+  })
+
+  it('reopenReview returns missing_commit when the head sha is gone', async () => {
+    const reviews = memStore([savedReview()])
+    const { h, deps } = setup({ reviews, commitExists: vi.fn(async () => false) })
+    expect(await h.reopenReview('old-id')).toEqual({
+      error: {
+        message: 'This review’s commit is no longer in the repository.',
+        reason: 'missing_commit'
+      }
+    })
+    expect(deps.ensureWorktree).not.toHaveBeenCalled()
+    expect(reviews.get('old-id')).toEqual(savedReview())
+  })
+
+  it('reopenReview returns missing_repo when the repository is gone', async () => {
+    const { h } = setup({
+      reviews: memStore([savedReview()]),
+      runGit: vi.fn(async () => {
+        throw new Error('ENOENT')
+      })
+    })
+    expect(await h.reopenReview('old-id')).toEqual({
+      error: { message: 'Repository not found at /repo', reason: 'missing_repo' }
+    })
+  })
+
+  it('saveReviewState persists state without changing lastOpenedAt', async () => {
+    const reviews = memStore([savedReview()])
+    const { h } = setup({ reviews })
+    const state = { index: 0, seen: [0, 1], mode: 'diff' as const, messages: [] }
+    await h.saveReviewState({ id: 'old-id', state })
+    expect(reviews.get('old-id')).toEqual({ ...savedReview(), state })
+    await h.saveReviewState({ id: 'missing', state })
+    expect(reviews.get('missing')).toBeNull()
+  })
+
+  it('saveReviewState keeps costUsd and sessionId written since the review was read', async () => {
+    const reviews = memStore([savedReview()])
+    const { h } = setup({ reviews })
+    await h.reopenReview('old-id')
+    await h.ask({ stepId: 's1', question: 'why?' })
+    const state = { index: 1, seen: [0, 1], mode: 'diff' as const, messages: [] }
+    await h.saveReviewState({ id: 'old-id', state })
+    const r = reviews.get('old-id')!
+    expect(r.state).toEqual(state)
+    expect(r.walkthrough.sessionId).toBe('sess2')
+    expect(r.costUsd).toBeCloseTo(2.1)
+  })
+
+  it('deleteReview keeps a worktree another review shares', async () => {
+    const pr: ReviewTarget = { ...target, kind: 'github', prNumber: 7, title: 'PR 7' }
+    const reviews = memStore([savedReview(), savedReview({ id: 'pr-id' }, pr)])
+    const { h, deps } = setup({ reviews })
+    expect(await h.deleteReview('old-id')).toEqual(savedReview())
+    expect(reviews.get('old-id')).toBeNull()
+    expect(deps.runGit).not.toHaveBeenCalledWith('/repo', expect.arrayContaining(['worktree']))
+    await h.deleteReview('pr-id')
+    expect(deps.runGit).toHaveBeenCalledWith('/repo', ['worktree', 'remove', '--force', '/wt-old'])
+    expect(await h.deleteReview('pr-id')).toBeNull()
+  })
+
+  it('deleteReview of the open review closes it', async () => {
+    const { h } = setup({ reviews: memStore([savedReview()]) })
+    await h.reopenReview('old-id')
+    await h.deleteReview('old-id')
+    expect(await h.ask({ stepId: 's1', question: 'why?' })).toEqual({
+      error: { message: 'No walkthrough is open.' }
+    })
+    expect(await h.readFile({ sha: 'oldhead', path: 'a.ts' })).toBeNull()
+  })
+
+  it('deleteReview then restoreReview lists it again', async () => {
+    const reviews = memStore([savedReview({ lastOpenedAt: daysAgo(1) })])
+    const { h } = setup({ reviews, now: () => NOW })
+    const removed = await h.deleteReview('old-id')
+    expect(await h.listReviews()).toEqual([])
+    await h.restoreReview(removed!)
+    expect((await h.listReviews()).map((r) => r.id)).toEqual(['old-id'])
+  })
+
+  it('restoreReview ignores an invalid review or a non-plain id', async () => {
+    const reviews = memStore()
+    const { h } = setup({ reviews })
+    await expect(h.restoreReview(savedReview({ id: '../x' }))).resolves.toBeUndefined()
+    await h.restoreReview({ id: 'y' } as unknown as SavedReview)
+    expect(reviews.save).not.toHaveBeenCalled()
+  })
+
+  it('checkReviewUpdates stores the result with checkedAt', async () => {
+    const reviews = memStore([savedReview({ update: undefined })])
+    const { h, deps } = setup({
+      reviews,
+      now: () => NOW,
+      checkForUpdates: vi.fn(async () => ({ latestHeadSha: 'tip', newCommits: 2 }))
+    })
+    const update = { latestHeadSha: 'tip', newCommits: 2, checkedAt: new Date(NOW).toISOString() }
+    expect(await h.checkReviewUpdates('old-id')).toEqual(update)
+    expect(deps.checkForUpdates).toHaveBeenCalledWith(savedReview().walkthrough.target)
+    expect(reviews.get('old-id')).toEqual(savedReview({ update }))
+  })
+
+  it('checkReviewUpdates returns null and stores nothing when the check finds nothing', async () => {
+    const reviews = memStore([savedReview()])
+    const { h } = setup({ reviews })
+    expect(await h.checkReviewUpdates('old-id')).toBeNull()
+    expect(await h.checkReviewUpdates('missing')).toBeNull()
+    expect(reviews.save).not.toHaveBeenCalled()
+  })
 })

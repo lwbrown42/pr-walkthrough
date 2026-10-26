@@ -22,7 +22,13 @@ const api: PreloadApi = {
   getFixture: () => ipcRenderer.invoke(IPC.getFixture),
   readFile: (req) => ipcRenderer.invoke(IPC.readFile, req),
   getRunLog: () => ipcRenderer.invoke(IPC.getRunLog),
-  getReviewUsage: () => ipcRenderer.invoke(IPC.getReviewUsage)
+  getReviewUsage: () => ipcRenderer.invoke(IPC.getReviewUsage),
+  listReviews: () => ipcRenderer.invoke(IPC.listReviews),
+  reopenReview: (id) => ipcRenderer.invoke(IPC.reopenReview, id),
+  saveReviewState: (req) => ipcRenderer.invoke(IPC.saveReviewState, req),
+  deleteReview: (id) => ipcRenderer.invoke(IPC.deleteReview, id),
+  restoreReview: (review) => ipcRenderer.invoke(IPC.restoreReview, review),
+  checkReviewUpdates: (id) => ipcRenderer.invoke(IPC.checkReviewUpdates, id)
 }
 
 if (process.contextIsolated) {
