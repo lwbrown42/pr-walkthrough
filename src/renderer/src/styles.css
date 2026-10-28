@@ -217,15 +217,40 @@ button.link {
 .columns {
   flex: 1;
   min-height: 0;
-  display: flex;
+}
+/* Dividers between panes (react-resizable-panels): borders mark them; a wider hit area drags. */
+.resize-handle {
+  position: relative;
+  flex: none;
+  background: var(--border);
+  outline: none;
+}
+.resize-handle[aria-orientation='vertical'] {
+  width: 1px;
+}
+.resize-handle[aria-orientation='horizontal'] {
+  height: 1px;
+}
+.resize-handle::after {
+  content: '';
+  position: absolute;
+  inset: 0 -3px;
+}
+.resize-handle[aria-orientation='horizontal']::after {
+  inset: -3px 0;
+}
+.resize-handle[data-separator='hover'],
+.resize-handle[data-separator='focus'],
+.resize-handle[data-separator='active'] {
+  background: var(--accent);
+  box-shadow: 0 0 0 1px var(--accent);
 }
 .steps-list {
-  width: 236px;
-  flex: none;
+  height: 100%;
+  box-sizing: border-box;
   display: flex;
   flex-direction: column;
   overflow-y: auto;
-  border-right: 1px solid var(--border);
   background: var(--panel);
 }
 .steps-list ol {
@@ -312,7 +337,7 @@ button.link {
   border-top: 1px solid var(--border);
 }
 .code-column {
-  flex: 1;
+  height: 100%;
   min-width: 0;
   display: flex;
   flex-direction: column;
@@ -372,20 +397,13 @@ button.link {
   padding: 12px;
 }
 .right-column {
-  width: 380px;
-  flex: none;
-  display: flex;
-  flex-direction: column;
-  border-left: 1px solid var(--border);
-  min-height: 0;
+  height: 100%;
 }
 .explanation {
-  /* shortcut: fixed 60/40 split with the chat; draggable divider is issue #5. */
-  flex: 0 0 60%;
+  height: 100%;
   box-sizing: border-box;
   padding: 16px 20px 4px;
   overflow-y: auto;
-  border-bottom: 1px solid var(--border);
 }
 .explanation .step-of {
   font-size: 12px;
@@ -431,7 +449,8 @@ button.link {
   white-space: pre-wrap;
 }
 .chat-panel {
-  flex: 1;
+  height: 100%;
+  box-sizing: border-box;
   min-height: 0;
   padding: 10px 16px 14px;
   display: flex;

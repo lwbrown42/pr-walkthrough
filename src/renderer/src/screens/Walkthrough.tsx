@@ -13,6 +13,7 @@ import type { Walkthrough as WalkthroughData } from '../../../shared/walkthrough
 import ChatPanel from '../components/ChatPanel'
 import CodePane from '../components/CodePane'
 import ExplanationPanel from '../components/ExplanationPanel'
+import ResizableLayout from '../components/ResizableLayout'
 import StepsList from '../components/StepsList'
 import FileBar from '../components/FileBar'
 import Usage from './Usage'
@@ -36,6 +37,11 @@ function commitsLabel(count: number | null | undefined): string {
 function isTextTarget(t: EventTarget | null): boolean {
   if (!(t instanceof HTMLElement)) return false
   return t.tagName === 'INPUT' || t.tagName === 'TEXTAREA' || t.isContentEditable
+}
+
+/** A focused resize handle uses the arrow keys itself. */
+function isResizeHandle(t: EventTarget | null): boolean {
+  return t instanceof HTMLElement && t.getAttribute('role') === 'separator'
 }
 
 export default function Walkthrough({
@@ -150,7 +156,8 @@ export default function Walkthrough({
         if (e.key === 'Escape') setUsageOpen(false)
         return
       }
-      if (isTextTarget(e.target) || e.metaKey || e.ctrlKey || e.altKey) return
+      if (isTextTarget(e.target) || isResizeHandle(e.target) || e.metaKey || e.ctrlKey || e.altKey)
+        return
       if (e.key === 'j' || e.key === 'ArrowDown') {
         e.preventDefault()
         setIndex((i) => Math.min(i + 1, steps.length - 1))
@@ -220,50 +227,56 @@ export default function Walkthrough({
           )}
         </div>
       )}
-      <div className="columns">
-        <StepsList
-          steps={steps}
-          files={files}
-          currentIndex={index}
-          seen={seen}
-          onSelect={setIndex}
-        />
-        <main className="code-column">
-          <div className="code-toolbar">
-            <FileBar segments={step.segments} onJump={jumpTo} />
-            <div className="toggle" role="group" aria-label="Code view">
-              {(['diff', 'plain'] as const).map((m) => (
-                <button
-                  key={m}
-                  type="button"
-                  aria-pressed={mode === m}
-                  className={mode === m ? 'active' : undefined}
-                  onClick={() => setMode(m)}
-                >
-                  {m === 'diff' ? 'Diff' : 'Plain'}
-                </button>
-              ))}
+      <ResizableLayout
+        steps={
+          <StepsList
+            steps={steps}
+            files={files}
+            currentIndex={index}
+            seen={seen}
+            onSelect={setIndex}
+          />
+        }
+        code={
+          <main className="code-column">
+            <div className="code-toolbar">
+              <FileBar segments={step.segments} onJump={jumpTo} />
+              <div className="toggle" role="group" aria-label="Code view">
+                {(['diff', 'plain'] as const).map((m) => (
+                  <button
+                    key={m}
+                    type="button"
+                    aria-pressed={mode === m}
+                    className={mode === m ? 'active' : undefined}
+                    onClick={() => setMode(m)}
+                  >
+                    {m === 'diff' ? 'Diff' : 'Plain'}
+                  </button>
+                ))}
+              </div>
             </div>
-          </div>
-          <div className="code-scroll" ref={codeRef}>
-            <CodePane step={step} files={files} target={target} mode={mode} />
-          </div>
-        </main>
-        <aside className="right-column">
+            <div className="code-scroll" ref={codeRef}>
+              <CodePane step={step} files={files} target={target} mode={mode} />
+            </div>
+          </main>
+        }
+        explanation={
           <ExplanationPanel
             step={step}
             label={labels[index]}
             mainCount={mainCount}
             detourFrom={labels[index].match(/^(\d+)[a-z]+$/)?.[1]}
           />
+        }
+        chat={
           <ChatPanel
             stepId={step.id}
             steps={steps}
             messages={messages}
             onAppend={(m) => setMessages((prev) => [...prev, m])}
           />
-        </aside>
-      </div>
+        }
+      />
       {usageOpen && (
         <div className="overlay" onClick={() => setUsageOpen(false)}>
           <div

@@ -1,6 +1,6 @@
 import { act, cleanup, fireEvent, render, screen } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
-import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
+import { afterEach, beforeEach, describe, expect, it, onTestFinished, vi } from 'vitest'
 import type { PreloadApi } from '../../src/shared/api'
 import Walkthrough from '../../src/renderer/src/screens/Walkthrough'
 import type { ReviewUpdate, SavedReview } from '../../src/shared/reviews'
@@ -158,6 +158,33 @@ describe('Walkthrough screen', () => {
       [...document.querySelectorAll('.explanation-text code')].map((c) => c.textContent)
     ).toEqual(['merge', '<|>'])
     expect(document.querySelector('.explanation-text')?.textContent).not.toContain('`')
+  })
+
+  it('has a resize handle between each pair of panes', () => {
+    setup()
+    const handles = screen.getAllByRole('separator')
+    expect(handles.map((h) => h.getAttribute('aria-orientation'))).toEqual([
+      'vertical',
+      'vertical',
+      'horizontal'
+    ])
+    for (const h of handles) expect(h.tabIndex).toBe(0)
+  })
+
+  it('arrow keys on a focused resize handle do not change the step', async () => {
+    // jsdom lays nothing out; the panels library needs real sizes to move a handle.
+    const width = vi.spyOn(HTMLElement.prototype, 'offsetWidth', 'get').mockReturnValue(1200)
+    const height = vi.spyOn(HTMLElement.prototype, 'offsetHeight', 'get').mockReturnValue(800)
+    onTestFinished(() => {
+      width.mockRestore()
+      height.mockRestore()
+    })
+    setup()
+    const user = userEvent.setup()
+    const chatHandle = screen.getAllByRole('separator')[2]
+    act(() => chatHandle.focus())
+    await user.keyboard('{ArrowDown}{ArrowUp}{ArrowDown}j')
+    expect(header('Step 1 of 3')).toBeTruthy()
   })
 
   it('ignores keys typed in a text input', async () => {
