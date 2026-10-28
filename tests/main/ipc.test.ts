@@ -133,6 +133,7 @@ function setup(
     worktreesDir: '/wts',
     reviews: memStore(),
     checkForUpdates: vi.fn(async () => null),
+    fetchAuthorContext: vi.fn(async () => ({ description: null, commits: null })),
     ensureWorktree: vi.fn(async () => '/wt'),
     commitExists: vi.fn(async () => true),
     newId: () => 'new-id',
@@ -202,6 +203,7 @@ describe('generate', () => {
     ])
     const args = vi.mocked(deps.generateWalkthrough).mock.calls[0][0]
     expect(args.diffText).toBe('DIFF')
+    expect(deps.fetchAuthorContext).toHaveBeenCalledWith(target)
     expect(args.lineCounts).toEqual({ head: { 'new.ts': 3 }, base: { 'old.ts': 3, 'gone.ts': 3 } })
     expect(deps.send).toHaveBeenCalledWith('api:generateProgress', {
       stage: 'reading',
@@ -221,6 +223,26 @@ describe('generate', () => {
       costUsd: 0.5,
       turns: 4,
       durationMs: 99
+    })
+  })
+
+  it('passes the author context to generation, and generates without it when the fetch fails', async () => {
+    const ctx = { description: 'Adds retries.', commits: 'First' }
+    const a = setup({ fetchAuthorContext: vi.fn(async () => ctx) })
+    await a.h.openTarget(local)
+    await a.h.generate(target)
+    expect(vi.mocked(a.deps.generateWalkthrough).mock.calls[0][0].authorContext).toEqual(ctx)
+
+    const b = setup({
+      fetchAuthorContext: vi.fn(async () => {
+        throw new Error('gh offline')
+      })
+    })
+    await b.h.openTarget(local)
+    expect(await b.h.generate(target)).toMatchObject({ walkthrough: { sessionId: 'sess1' } })
+    expect(vi.mocked(b.deps.generateWalkthrough).mock.calls[0][0].authorContext).toEqual({
+      description: null,
+      commits: null
     })
   })
 

@@ -174,6 +174,21 @@ describe('generateWalkthrough', () => {
     ])
   })
 
+  it('puts the author context in the prompt', async () => {
+    const q = fakeQuery([result({ structured_output: validOutput })])
+    const authorContext = { description: 'Adds retries.', commits: 'First' }
+    await generateWalkthrough({
+      target,
+      files,
+      diffText,
+      lineCounts,
+      settings,
+      authorContext,
+      queryFn: q.fn
+    })
+    expect(q.calls[0].prompt).toBe(buildWalkthroughPrompt(target, files, diffText, authorContext))
+  })
+
   it('passes read-only, isolated options to the SDK', async () => {
     const q = fakeQuery([result({ structured_output: validOutput })])
     await run(q.fn)
@@ -321,6 +336,34 @@ describe('buildWalkthroughPrompt', () => {
     expect(p).toContain('src/queue/task.ts')
     expect(p).toContain('renamed')
     expect(p).toContain(numberDiff(diffText))
+  })
+
+  it('leaves out the author blocks when there is no author context', () => {
+    for (const p of [
+      buildWalkthroughPrompt(target, files, diffText),
+      buildWalkthroughPrompt(target, files, diffText, { description: null, commits: null })
+    ]) {
+      expect(p).not.toContain('<pr_description>')
+      expect(p).not.toContain('<commits')
+      expect(p).not.toContain("author's own account")
+    }
+  })
+
+  it('puts the description and commits before the diff', () => {
+    const p = buildWalkthroughPrompt(target, files, diffText, {
+      description: 'Retries failed webhooks.',
+      commits: 'Add retry\n\nBackoff too.'
+    })
+    expect(p).toContain('<pr_description>\nRetries failed webhooks.\n</pr_description>')
+    expect(p).toContain('<commits order="oldest first">\nAdd retry\n\nBackoff too.\n</commits>')
+    expect(p.indexOf('<pr_description>')).toBeLessThan(p.indexOf('<diff'))
+    expect(p.indexOf('<commits')).toBeLessThan(p.indexOf('<diff'))
+  })
+
+  it('includes only the block it was given', () => {
+    const p = buildWalkthroughPrompt(target, files, diffText, { commits: 'Add retry' })
+    expect(p).toContain('<commits')
+    expect(p).not.toContain('<pr_description>')
   })
 })
 

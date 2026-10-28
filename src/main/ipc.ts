@@ -34,6 +34,7 @@ import {
 } from './git/diff'
 import { runGit } from './git/run'
 import { commitExists, ensureWorktree, resolveGithubPr, resolveLocalBranch } from './git/target'
+import { fetchAuthorContext } from './git/authorContext'
 import { checkForUpdates } from './git/updates'
 import { isPlainId, type ReviewStore } from './reviews/store'
 import type { SettingsStore } from './settings'
@@ -52,6 +53,7 @@ export interface HandlerDeps {
   worktreesDir: string
   reviews: ReviewStore
   checkForUpdates: typeof checkForUpdates
+  fetchAuthorContext: typeof fetchAuthorContext
   /** ensureWorktree bound to worktreesDir. */
   ensureWorktree: (repoPath: string, headSha: string) => Promise<string>
   commitExists: typeof commitExists
@@ -327,7 +329,7 @@ export function createHandlers(deps: HandlerDeps): Handlers {
             : await deps.getChangedFiles(target.worktreePath, target.baseSha, target.headSha)
         const changedLines = deps.countChangedLines(files)
         current = { target, files, changedLines }
-        const [diffText, lineCounts] = await Promise.all([
+        const [diffText, lineCounts, authorContext] = await Promise.all([
           deps.runGit(
             target.worktreePath,
             promptDiffArgs(
@@ -338,7 +340,9 @@ export function createHandlers(deps: HandlerDeps): Handlers {
                 .flatMap((f) => (f.oldPath ? [f.path, f.oldPath] : [f.path]))
             )
           ),
-          computeLineCounts(target, files)
+          computeLineCounts(target, files),
+          // Fetched on every generation so a regenerate sees the current description.
+          deps.fetchAuthorContext(target).catch(() => ({ description: null, commits: null }))
         ])
         if (abortController.signal.aborted) {
           throw new AgentRunError('cancelled', 'Generation was cancelled.')
@@ -348,6 +352,7 @@ export function createHandlers(deps: HandlerDeps): Handlers {
           files,
           diffText,
           lineCounts,
+          authorContext,
           settings: deps.settings.get(),
           abortController,
           readLineCount: async (path) => {
@@ -677,6 +682,7 @@ export function registerIpc(opts: {
     worktreesDir: opts.worktreesDir,
     reviews: opts.reviews,
     checkForUpdates,
+    fetchAuthorContext,
     ensureWorktree: (r, s) => ensureWorktree(runGit, r, opts.worktreesDir, s),
     commitExists,
     newId: randomUUID,

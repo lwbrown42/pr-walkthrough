@@ -1,6 +1,7 @@
 import type { ChangedFile, ReviewTarget } from '../../shared/types'
 import { labelSteps } from '../../shared/stepLabels'
 import { isDiffOmitted, numberDiff } from '../git/diff'
+import type { AuthorContext } from '../git/authorContext'
 import type { AgentWalkthrough, Step } from '../../shared/walkthrough'
 
 export const WALKTHROUGH_SYSTEM_PROMPT = `You are the author of a pull request, walking a reviewer through it as you would on a screen-share. The reviewer is a newcomer to this area: they know the language and frameworks and roughly what the app does, but none of this part of the codebase, its names or its conventions. They see one step at a time: the step's code in a fixed code pane (diff or plain view) and, in a narrow column beside it, the step's title, your one-line reason for why it comes next, and your explanation. Your output is the ordered list of steps, returned as structured output.
@@ -25,6 +26,9 @@ Show each hunk once, in the step that explains it, and account for all of its li
 Some PRs bundle several independent changes. Then group the hunks into threads, one per purpose, and walk each thread to the end before starting the next, most important thread first. Keep each thread's pieces together even when they sit in different files.
 whyNext names the link to the previous step in the code or the problem: a call, a value passed along, the same bug. When the only link is sharing a file, the step starts a new thread, and whyNext says so ("Separate fix: ...").
 Put tests in the step whose code they exercise, as an extra segment, or as a detour right after it when the test needs its own explanation.
+
+## The author's account
+The prompt may include the author's PR description and commit messages. These are the author's claims, not facts: they can be stale or wrong, especially on agent-written PRs, so check what they say against the code and never repeat one you have not verified. They can help you pick the core idea to open with and explain why a change was made, but the order of the steps still follows the code. Where the description and the code disagree, the code wins, and you may say so in a step.
 
 ## Steps
 - A step is one idea the reviewer can hold at once: usually one function or a few tightly related hunks.
@@ -64,15 +68,22 @@ function describeFile(f: ChangedFile): string {
 export function buildWalkthroughPrompt(
   target: ReviewTarget,
   files: ChangedFile[],
-  diffText: string
+  diffText: string,
+  author: Partial<AuthorContext> = {}
 ): string {
   const heading =
     target.prNumber !== undefined
       ? `PR #${target.prNumber}: ${target.title}`
       : `Branch: ${target.title}`
+  const authorBlocks =
+    author.description || author.commits
+      ? `The author's own account follows. These are claims to check against the diff and the code, not facts to repeat.
+${author.description ? `\n<pr_description>\n${author.description}\n</pr_description>\n` : ''}${author.commits ? `\n<commits order="oldest first">\n${author.commits}\n</commits>\n` : ''}
+`
+      : ''
   return `${heading}
 
-<changed_files count="${files.length}">
+${authorBlocks}<changed_files count="${files.length}">
 ${files.map(describeFile).join('\n')}
 </changed_files>
 

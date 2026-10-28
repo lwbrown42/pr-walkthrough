@@ -1,6 +1,7 @@
 import { query, type SDKResultMessage } from '@anthropic-ai/claude-agent-sdk'
 import type { ChangedFile, ReviewTarget, Settings, TokenUsage } from '../../shared/types'
 import { AgentWalkthrough, agentWalkthroughJsonSchema } from '../../shared/walkthrough'
+import type { AuthorContext } from '../git/authorContext'
 import type { GenerateProgress } from '../../shared/progress'
 import { normalizeWalkthrough, type LineCounts } from '../walkthrough/normalize'
 import { AgentRunError, buildAgentOptions, resultError, usageOf } from './options'
@@ -12,6 +13,8 @@ export interface GenerateArgs {
   files: ChangedFile[]
   diffText: string
   lineCounts: LineCounts
+  /** The PR description and commit messages, when they could be fetched. */
+  authorContext?: Partial<AuthorContext>
   settings: Settings
   onProgress?: (p: GenerateProgress) => void
   /** Head-version line count for a file outside lineCounts (context on unchanged files), or null. */
@@ -59,7 +62,7 @@ export async function generateWalkthrough(args: GenerateArgs): Promise<GenerateR
     let outputBlock: number | undefined
     let outputStreamed = false
     for await (const msg of queryFn({
-      prompt: buildWalkthroughPrompt(target, files, diffText),
+      prompt: buildWalkthroughPrompt(target, files, diffText, args.authorContext),
       options
     })) {
       if ('parent_tool_use_id' in msg && msg.parent_tool_use_id) continue
