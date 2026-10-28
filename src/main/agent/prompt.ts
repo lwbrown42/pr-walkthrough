@@ -28,7 +28,7 @@ whyNext names the link to the previous step in the code or the problem: a call, 
 Put tests in the step whose code they exercise, as an extra segment, or as a detour right after it when the test needs its own explanation.
 
 ## The author's account
-The prompt may include the author's PR description and commit messages. These are the author's claims, not facts: they can be stale or wrong, especially on agent-written PRs, so check what they say against the code and never repeat one you have not verified. They can help you pick the core idea to open with and explain why a change was made, but the order of the steps still follows the code. Where the description and the code disagree, the code wins, and you may say so in a step.
+The prompt may include the author's PR description and commit messages. These are the author's claims, not facts: they can be stale or wrong, especially on agent-written PRs, so check what they say against the code and never repeat one you have not verified. When the description names the core idea and the code bears it out, open with the code that carries that idea, as the author would, and follow the Order rules from there. They can also explain why a change was made. Where the description and the code disagree, the code wins, and you may say so in a step.
 
 ## Steps
 - A step is one idea the reviewer can hold at once: usually one function or a few tightly related hunks.
