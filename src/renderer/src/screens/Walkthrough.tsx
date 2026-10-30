@@ -60,6 +60,7 @@ export default function Walkthrough({
   const [messages, setMessages] = useState<ChatMessage[]>(() => saved?.messages ?? [])
   const [mode, setMode] = useState<'diff' | 'plain'>(() => saved?.mode ?? 'diff')
   const [usageOpen, setUsageOpen] = useState(false)
+  const [openPrError, setOpenPrError] = useState<string | null>(null)
   const [reviewCost, setReviewCost] = useState<number>()
   const [seen, setSeen] = useState<ReadonlySet<number>>(() => new Set(saved?.seen ?? [0]))
   const [update, setUpdate] = useState<ReviewUpdate>()
@@ -184,6 +185,20 @@ export default function Walkthrough({
           {reviewCost !== undefined && (
             <span className="review-cost muted">This review: ${reviewCost.toFixed(2)}</span>
           )}
+          {target.kind === 'github' && (
+            <button
+              type="button"
+              className="link"
+              onClick={() => {
+                setOpenPrError(null)
+                void window.api.openPr().then((r) => {
+                  if (r && 'error' in r) setOpenPrError(r.error.message)
+                })
+              }}
+            >
+              View on GitHub
+            </button>
+          )}
           <button type="button" className="link" onClick={() => setUsageOpen(true)}>
             Usage
           </button>
@@ -195,6 +210,11 @@ export default function Walkthrough({
       {notice && (
         <div className="banner banner-error" role="alert">
           {notice}
+        </div>
+      )}
+      {openPrError && (
+        <div className="banner banner-error" role="alert">
+          Couldn&apos;t open the PR: {openPrError}
         </div>
       )}
       {moved && review && (

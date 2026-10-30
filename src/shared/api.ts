@@ -40,6 +40,8 @@ export interface PreloadApi {
   /** Dev-only: the walkthrough loaded via --fixture <file.json>, else null. */
   getFixture(): Promise<Walkthrough | null>
   readFile(req: { sha: string; path: string }): Promise<string | null>
+  /** Opens the open review's GitHub PR in the browser. */
+  openPr(): Promise<void | ApiError>
   /** Every logged generation and chat question, oldest first. */
   getRunLog(): Promise<RunLogEntry[]>
   /** Totals for the open saved review: every generation and chat question logged under its id. */
@@ -69,6 +71,7 @@ export const IPC = {
   cancelGenerate: 'api:cancelGenerate',
   ask: 'api:ask',
   readFile: 'api:readFile',
+  openPr: 'api:openPr',
   getFixture: 'api:getFixture',
   getRunLog: 'api:getRunLog',
   getReviewUsage: 'api:getReviewUsage',

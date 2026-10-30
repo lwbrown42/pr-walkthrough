@@ -228,6 +228,27 @@ describe('Walkthrough screen', () => {
   })
 })
 
+describe('open the PR on GitHub', () => {
+  const pr: W = { ...wt, target: { ...wt.target, kind: 'github', prNumber: 7 } }
+
+  it('is offered only for a GitHub PR', () => {
+    setup()
+    expect(screen.queryByRole('button', { name: 'View on GitHub' })).toBeNull()
+    cleanup()
+    render(<Walkthrough walkthrough={pr} onExit={vi.fn()} />)
+    expect(screen.getByRole('button', { name: 'View on GitHub' })).toBeTruthy()
+  })
+
+  it('asks the main process to open it, and shows an error if that fails', async () => {
+    const openPr = vi.fn().mockResolvedValue({ error: { message: 'gh: not logged in' } })
+    window.api = { ...api, openPr } as unknown as PreloadApi
+    render(<Walkthrough walkthrough={pr} onExit={vi.fn()} />)
+    await userEvent.click(screen.getByRole('button', { name: 'View on GitHub' }))
+    expect(openPr).toHaveBeenCalledOnce()
+    expect((await screen.findByRole('alert')).textContent).toContain('gh: not logged in')
+  })
+})
+
 describe('usage during a review', () => {
   it('shows what this review has cost so far in the top bar', async () => {
     setup()

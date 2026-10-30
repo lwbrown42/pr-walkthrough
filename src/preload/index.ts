@@ -21,6 +21,7 @@ const api: PreloadApi = {
   onChatText: (cb) => subscribe(IPC.chatText, cb),
   getFixture: () => ipcRenderer.invoke(IPC.getFixture),
   readFile: (req) => ipcRenderer.invoke(IPC.readFile, req),
+  openPr: () => ipcRenderer.invoke(IPC.openPr),
   getRunLog: () => ipcRenderer.invoke(IPC.getRunLog),
   getReviewUsage: () => ipcRenderer.invoke(IPC.getReviewUsage),
   listReviews: () => ipcRenderer.invoke(IPC.listReviews),

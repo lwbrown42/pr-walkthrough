@@ -1,7 +1,7 @@
 import { randomUUID } from 'node:crypto'
 import { realpathSync } from 'node:fs'
 import { isAbsolute, resolve, sep } from 'node:path'
-import { dialog, ipcMain, type BrowserWindow } from 'electron'
+import { dialog, ipcMain, shell, type BrowserWindow } from 'electron'
 import {
   CHANGED_LINES_LIMIT,
   IPC,
@@ -32,7 +32,7 @@ import {
   promptDiffArgs,
   readFileAt
 } from './git/diff'
-import { runGit } from './git/run'
+import { runGh, runGit } from './git/run'
 import { commitExists, ensureWorktree, resolveGithubPr, resolveLocalBranch } from './git/target'
 import { fetchAuthorContext } from './git/authorContext'
 import { checkForUpdates } from './git/updates'
@@ -54,6 +54,9 @@ export interface HandlerDeps {
   reviews: ReviewStore
   checkForUpdates: typeof checkForUpdates
   fetchAuthorContext: typeof fetchAuthorContext
+  runGh: typeof runGh
+  /** Opens a URL in the reader's browser. */
+  openExternal: (url: string) => Promise<void>
   /** ensureWorktree bound to worktreesDir. */
   ensureWorktree: (repoPath: string, headSha: string) => Promise<string>
   commitExists: typeof commitExists
@@ -656,6 +659,31 @@ export function createHandlers(deps: HandlerDeps): Handlers {
     async readFile({ sha, path }) {
       if (!current) return null
       return deps.readFileAt(current.target.worktreePath, sha, path)
+    },
+
+    async openPr() {
+      const t = current?.target
+      if (t?.kind !== 'github' || t.prNumber === undefined) {
+        return { error: { message: 'The open review is not a GitHub PR.' } }
+      }
+      try {
+        const out = await deps.runGh(t.repoPath, [
+          'pr',
+          'view',
+          String(t.prNumber),
+          '--json',
+          'url'
+        ])
+        const url: unknown = JSON.parse(out).url
+        // Only ever hand the OS a web link, whatever gh printed.
+        if (typeof url !== 'string' || !url.startsWith('https://')) {
+          throw new Error(`gh returned an unexpected PR URL: ${String(url)}`)
+        }
+        await deps.openExternal(url)
+        return undefined
+      } catch (e) {
+        return toApiError(e)
+      }
     }
   }
 }
@@ -683,6 +711,8 @@ export function registerIpc(opts: {
     reviews: opts.reviews,
     checkForUpdates,
     fetchAuthorContext,
+    runGh,
+    openExternal: (url) => shell.openExternal(url),
     ensureWorktree: (r, s) => ensureWorktree(runGit, r, opts.worktreesDir, s),
     commitExists,
     newId: randomUUID,
@@ -708,6 +738,7 @@ export function registerIpc(opts: {
   ipcMain.handle(IPC.ask, (_e, req) => handlers.ask(req))
   ipcMain.handle(IPC.getFixture, () => handlers.getFixture())
   ipcMain.handle(IPC.readFile, (_e, req) => handlers.readFile(req))
+  ipcMain.handle(IPC.openPr, () => handlers.openPr())
   ipcMain.handle(IPC.getRunLog, () => handlers.getRunLog())
   ipcMain.handle(IPC.getReviewUsage, () => handlers.getReviewUsage())
   ipcMain.handle(IPC.listReviews, () => handlers.listReviews())

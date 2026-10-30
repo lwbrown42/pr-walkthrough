@@ -134,6 +134,8 @@ function setup(
     reviews: memStore(),
     checkForUpdates: vi.fn(async () => null),
     fetchAuthorContext: vi.fn(async () => ({ description: null, commits: null })),
+    runGh: vi.fn(async () => JSON.stringify({ url: 'https://github.com/o/r/pull/7' })),
+    openExternal: vi.fn(async () => {}),
     ensureWorktree: vi.fn(async () => '/wt'),
     commitExists: vi.fn(async () => true),
     newId: () => 'new-id',
@@ -443,6 +445,47 @@ describe('getSettings / readFile', () => {
     await h.openTarget(local)
     await h.readFile({ sha: 'head', path: 'a.ts' })
     expect(deps.readFileAt).toHaveBeenCalledWith('/wt', 'head', 'a.ts')
+  })
+})
+
+describe('openPr', () => {
+  const pr: ReviewTarget = { ...target, kind: 'github', prNumber: 7, title: 'PR 7' }
+
+  it("opens the open PR's GitHub URL in the browser", async () => {
+    const { h, deps } = setup({ resolveGithubPr: vi.fn(async () => pr) })
+    await h.openTarget({ kind: 'github', repoPath: '/repo', pr: '7' })
+    expect(await h.openPr()).toBeUndefined()
+    expect(deps.runGh).toHaveBeenCalledWith('/repo', ['pr', 'view', '7', '--json', 'url'])
+    expect(deps.openExternal).toHaveBeenCalledWith('https://github.com/o/r/pull/7')
+  })
+
+  it('refuses when no GitHub PR is open', async () => {
+    const { h, deps } = setup()
+    expect(await h.openPr()).toMatchObject({ error: { message: expect.any(String) } })
+    await h.openTarget(local)
+    expect(await h.openPr()).toMatchObject({ error: { message: expect.any(String) } })
+    expect(deps.openExternal).not.toHaveBeenCalled()
+  })
+
+  it('never opens a URL that is not https', async () => {
+    const { h, deps } = setup({
+      resolveGithubPr: vi.fn(async () => pr),
+      runGh: vi.fn(async () => JSON.stringify({ url: 'file:///etc/passwd' }))
+    })
+    await h.openTarget({ kind: 'github', repoPath: '/repo', pr: '7' })
+    expect(await h.openPr()).toMatchObject({ error: { message: expect.any(String) } })
+    expect(deps.openExternal).not.toHaveBeenCalled()
+  })
+
+  it('reports a gh failure as an error', async () => {
+    const { h } = setup({
+      resolveGithubPr: vi.fn(async () => pr),
+      runGh: vi.fn(async () => {
+        throw new Error('gh: not logged in')
+      })
+    })
+    await h.openTarget({ kind: 'github', repoPath: '/repo', pr: '7' })
+    expect(await h.openPr()).toEqual({ error: { message: 'gh: not logged in' } })
   })
 })
 
